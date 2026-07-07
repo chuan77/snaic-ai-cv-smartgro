@@ -5,12 +5,11 @@ from pathlib import Path
 from src.data.annotation_import import import_label_studio_export
 
 if __name__ == "__main__":
-    noodle_written = import_label_studio_export(
-        Path("./dataset/raw_photos/Instant-Noodles/labelstudio_export"),
-        Path("./dataset/GroceryStoreDataset/dataset/train/Ready-To-Eat/Instant-Noodles"),
+    written = import_label_studio_export(
+        Path("./dataset/raw_photos"),
+        {
+            "Instant-Noodles": Path("./dataset/GroceryStoreDataset/dataset/train/Ready-To-Eat/Instant-Noodles"),
+            "Chocolate": Path("./dataset/GroceryStoreDataset/dataset/train/Snacks/Chocolate-Bar"),
+        },
     )
-    choc_written = import_label_studio_export(
-        Path("./dataset/raw_photos/Chocolate-Bar/labelstudio_export"),
-        Path("./dataset/GroceryStoreDataset/dataset/train/Snacks/Chocolate-Bar"),
-    )
-    print(f"Imported {len(noodle_written)} Instant-Noodles crops, {len(choc_written)} Chocolate-Bar crops.")
+    print(f"Imported {len(written)} cropped product photos.")
