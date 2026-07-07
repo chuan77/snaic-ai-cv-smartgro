@@ -1,7 +1,19 @@
+import io
+from unittest.mock import MagicMock
+
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image
 
-from src.deploy.api_server import app, get_catalog, leaf_display_name, load_catalog, xyxy_to_fractional_xywh
+from src.deploy.api_server import (
+    app,
+    build_detections,
+    get_catalog,
+    get_detector,
+    leaf_display_name,
+    load_catalog,
+    xyxy_to_fractional_xywh,
+)
 
 
 @pytest.mark.parametrize("product_name,expected", [
@@ -46,4 +58,59 @@ def test_catalog_endpoint_returns_the_overridden_catalog():
 
     assert response.status_code == 200
     assert response.json() == [{"sku": "Fruit/Apple/Royal-Gala", "name": "Royal Gala", "priceUsd": 1.75}]
+    app.dependency_overrides.clear()
+
+
+def test_build_detections_converts_raw_detections_to_response_shape():
+    raw = [{"class_name": "Snacks/Chocolate-Bar", "confidence": 0.9, "bbox": [50.0, 100.0, 150.0, 200.0]}]
+
+    result = build_detections(raw, img_width=200, img_height=400)
+
+    assert len(result) == 1
+    assert result[0]["label"] == "Snacks/Chocolate-Bar"
+    assert result[0]["confidence"] == 0.9
+    assert result[0]["bbox"] == pytest.approx([0.25, 0.25, 0.5, 0.25])
+    assert isinstance(result[0]["id"], str) and result[0]["id"]
+
+
+def test_build_detections_returns_empty_list_for_no_detections():
+    assert build_detections([], img_width=200, img_height=400) == []
+
+
+def test_predict_endpoint_returns_converted_detections_from_mocked_detector():
+    mock_detector = MagicMock()
+    mock_detector.detect.return_value = [
+        {"class_name": "Snacks/Chocolate-Bar", "confidence": 0.9, "bbox": [50.0, 100.0, 150.0, 200.0]}
+    ]
+    app.dependency_overrides[get_detector] = lambda: mock_detector
+    client = TestClient(app)
+
+    image_bytes = io.BytesIO()
+    Image.new("RGB", (200, 400)).save(image_bytes, format="JPEG")
+    image_bytes.seek(0)
+
+    response = client.post("/predict", files={"file": ("test.jpg", image_bytes, "image/jpeg")})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 1
+    assert body[0]["label"] == "Snacks/Chocolate-Bar"
+    assert body[0]["bbox"] == pytest.approx([0.25, 0.25, 0.5, 0.25])
+    app.dependency_overrides.clear()
+
+
+def test_predict_endpoint_returns_empty_list_when_no_detections():
+    mock_detector = MagicMock()
+    mock_detector.detect.return_value = []
+    app.dependency_overrides[get_detector] = lambda: mock_detector
+    client = TestClient(app)
+
+    image_bytes = io.BytesIO()
+    Image.new("RGB", (100, 100)).save(image_bytes, format="JPEG")
+    image_bytes.seek(0)
+
+    response = client.post("/predict", files={"file": ("test.jpg", image_bytes, "image/jpeg")})
+
+    assert response.status_code == 200
+    assert response.json() == []
     app.dependency_overrides.clear()

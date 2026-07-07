@@ -3,9 +3,15 @@ import os
 from functools import lru_cache
 from pathlib import Path
 
+import uuid
+
+import numpy as np
 import pandas as pd
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from PIL import Image
+
+from src.models.yolo_detector import YoloDetector
 
 DEFAULT_WEIGHTS_PATH = Path("./runs/detect/train/weights/best.pt")
 DEFAULT_CATALOG_PATH = Path("./artifacts/catalog_prices.csv")
@@ -55,3 +61,29 @@ def get_catalog() -> list[dict]:
 @app.get("/catalog")
 def catalog_endpoint(catalog: list[dict] = Depends(get_catalog)) -> list[dict]:
     return catalog
+
+
+@lru_cache
+def get_detector() -> YoloDetector:
+    weights_path = Path(os.environ.get("SMARTCART_WEIGHTS_PATH", str(DEFAULT_WEIGHTS_PATH)))
+    return YoloDetector(weights_path)
+
+
+def build_detections(detections: list[dict], img_width: int, img_height: int) -> list[dict]:
+    return [
+        {
+            "id": str(uuid.uuid4()),
+            "label": d["class_name"],
+            "confidence": d["confidence"],
+            "bbox": list(xyxy_to_fractional_xywh(d["bbox"], img_width, img_height)),
+        }
+        for d in detections
+    ]
+
+
+@app.post("/predict")
+def predict_endpoint(file: UploadFile, detector: YoloDetector = Depends(get_detector)) -> list[dict]:
+    image = Image.open(file.file).convert("RGB")
+    frame_rgb = np.array(image)
+    detections = detector.detect(frame_rgb)
+    return build_detections(detections, image.width, image.height)
