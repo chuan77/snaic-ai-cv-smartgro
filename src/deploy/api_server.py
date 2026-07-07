@@ -30,6 +30,18 @@ def get_catalog_path() -> Path:
     return Path(os.environ.get("SMARTCART_CATALOG_PATH", str(DEFAULT_CATALOG_PATH)))
 
 
+def parse_bool_env(value: str) -> bool:
+    return value.strip().lower() in ("1", "true", "yes")
+
+
+def get_server_config() -> dict[str, str | int | bool]:
+    return {
+        "host": os.environ.get("SMARTCART_HOST", "0.0.0.0"),
+        "port": int(os.environ.get("SMARTCART_PORT", "8000")),
+        "reload": parse_bool_env(os.environ.get("SMARTCART_RELOAD", "true")),
+    }
+
+
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,

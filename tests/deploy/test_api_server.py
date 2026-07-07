@@ -13,8 +13,10 @@ from src.deploy.api_server import (
     get_catalog_path,
     get_cors_origins,
     get_detector,
+    get_server_config,
     leaf_display_name,
     load_catalog,
+    parse_bool_env,
     xyxy_to_fractional_xywh,
 )
 
@@ -56,6 +58,37 @@ def test_get_catalog_path_reads_from_environment(monkeypatch, tmp_path):
     monkeypatch.setenv("SMARTCART_CATALOG_PATH", str(custom_path))
 
     assert get_catalog_path() == custom_path
+
+
+@pytest.mark.parametrize("value,expected", [
+    ("true", True),
+    ("True", True),
+    ("1", True),
+    ("yes", True),
+    ("false", False),
+    ("False", False),
+    ("0", False),
+    ("no", False),
+    ("", False),
+])
+def test_parse_bool_env_recognizes_truthy_and_falsy_strings(value, expected):
+    assert parse_bool_env(value) is expected
+
+
+def test_get_server_config_uses_defaults_when_env_unset(monkeypatch):
+    monkeypatch.delenv("SMARTCART_HOST", raising=False)
+    monkeypatch.delenv("SMARTCART_PORT", raising=False)
+    monkeypatch.delenv("SMARTCART_RELOAD", raising=False)
+
+    assert get_server_config() == {"host": "0.0.0.0", "port": 8000, "reload": True}
+
+
+def test_get_server_config_reads_from_environment(monkeypatch):
+    monkeypatch.setenv("SMARTCART_HOST", "127.0.0.1")
+    monkeypatch.setenv("SMARTCART_PORT", "9090")
+    monkeypatch.setenv("SMARTCART_RELOAD", "false")
+
+    assert get_server_config() == {"host": "127.0.0.1", "port": 9090, "reload": False}
 
 
 def test_xyxy_to_fractional_xywh_converts_pixel_box_to_fractional_top_left_xywh():
