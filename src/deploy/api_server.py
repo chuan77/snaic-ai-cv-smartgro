@@ -7,19 +7,33 @@ import uuid
 
 import numpy as np
 import pandas as pd
+from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
 
 from src.models.yolo_detector import YoloDetector
 
+load_dotenv()
+
 DEFAULT_WEIGHTS_PATH = Path("./runs/detect/train/weights/best.pt")
 DEFAULT_CATALOG_PATH = Path("./artifacts/catalog_prices.csv")
+DEFAULT_CORS_ORIGINS = "http://localhost:5173"
+
+
+def get_cors_origins() -> list[str]:
+    raw = os.environ.get("SMARTCART_CORS_ORIGINS", DEFAULT_CORS_ORIGINS)
+    return [origin.strip() for origin in raw.split(",") if origin.strip()]
+
+
+def get_catalog_path() -> Path:
+    return Path(os.environ.get("SMARTCART_CATALOG_PATH", str(DEFAULT_CATALOG_PATH)))
+
 
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=get_cors_origins(),
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -55,7 +69,7 @@ def load_catalog(csv_path: Path) -> list[dict]:
 
 @lru_cache
 def get_catalog() -> list[dict]:
-    return load_catalog(DEFAULT_CATALOG_PATH)
+    return load_catalog(get_catalog_path())
 
 
 @app.get("/catalog")
