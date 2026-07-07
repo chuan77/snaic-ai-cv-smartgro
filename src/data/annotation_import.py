@@ -34,3 +34,34 @@ def crop_with_padding(
         min(image.height, y_max + pad_y),
     )
     return image.crop(padded_box)
+
+
+def import_label_studio_export(export_dir: Path, dest_dir: Path) -> list[Path]:
+    """Reads a Label Studio YOLO-format export and writes one cropped photo per
+    label file into dest_dir, matching images to labels by filename stem."""
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    images_dir = export_dir / "images"
+    labels_dir = export_dir / "labels"
+    written: list[Path] = []
+
+    for label_path in sorted(labels_dir.glob("*.txt")):
+        lines = label_path.read_text().strip().splitlines()
+        if not lines:
+            continue
+
+        image_path = next(
+            (candidate for ext in (".jpg", ".jpeg", ".png", ".webp")
+             if (candidate := images_dir / f"{label_path.stem}{ext}").exists()),
+            None,
+        )
+        if image_path is None:
+            continue
+
+        with Image.open(image_path).convert("RGB") as img:
+            box = parse_yolo_bbox_line(lines[0], img.width, img.height)
+            cropped = crop_with_padding(img, box)
+            dest_path = dest_dir / image_path.name
+            cropped.save(dest_path)
+            written.append(dest_path)
+
+    return written
