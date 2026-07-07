@@ -1,8 +1,13 @@
+from pathlib import Path
+
+import pytest
 from PIL import Image
 
 from src.data.annotation_import import (
     parse_yolo_bbox_line,
     crop_with_padding,
+    load_class_names,
+    classify_category,
     import_label_studio_export,
 )
 
@@ -35,21 +40,84 @@ def test_crop_with_padding_clamps_to_image_bounds():
     assert cropped.size == (20, 20)
 
 
+def test_load_class_names_indexes_by_line_number(tmp_path):
+    export_dir = tmp_path / "export"
+    export_dir.mkdir()
+    (export_dir / "classes.txt").write_text("Instant-Noodles/Maggi/Curry\nChocolate/Cadbury/Dairy-Milk\n")
+
+    names = load_class_names(export_dir)
+
+    assert names == {0: "Instant-Noodles/Maggi/Curry", 1: "Chocolate/Cadbury/Dairy-Milk"}
+
+
+@pytest.mark.parametrize("class_name,expected_key", [
+    ("Instant-Noodles/Nissin/CHU-QIAN-YI-DING-SESAME", "Instant-Noodles"),
+    ("Ready-To-Eat/Instant-Noodles/Maggi/2-Minute-Curry", "Instant-Noodles"),
+    ("Snacks/Chocolate/Cadbury/Dairy-Milk", "Chocolate"),
+    ("Snacks/Chocolate-Bar/Cadbury/Dairy-Milk", "Chocolate"),
+    ("Fruit/Apple/Royal-Gala", None),
+])
+def test_classify_category_matches_by_keyword(class_name, expected_key):
+    category_keywords = {"Instant-Noodles": Path("/noodles"), "Chocolate": Path("/choc")}
+
+    result = classify_category(class_name, category_keywords)
+
+    assert result == category_keywords.get(expected_key)
+
+
 def test_import_label_studio_export_writes_cropped_images_and_returns_paths(tmp_path):
     export_dir = tmp_path / "export"
     images_dir = export_dir / "images"
     labels_dir = export_dir / "labels"
     images_dir.mkdir(parents=True)
     labels_dir.mkdir(parents=True)
+    (export_dir / "classes.txt").write_text("Instant-Noodles/Maggi/Curry\n")
     Image.new("RGB", (100, 100), color=(255, 0, 0)).save(images_dir / "sample_001.jpg")
     (labels_dir / "sample_001.txt").write_text("0 0.5 0.5 0.4 0.4\n")
     dest_dir = tmp_path / "dest"
 
-    written = import_label_studio_export(export_dir, dest_dir)
+    written = import_label_studio_export(export_dir, {"Instant-Noodles": dest_dir})
 
-    assert written == [dest_dir / "sample_001.jpg"]
-    with Image.open(dest_dir / "sample_001.jpg") as cropped:
+    assert written == [dest_dir / "sample_001_0.jpg"]
+    with Image.open(dest_dir / "sample_001_0.jpg") as cropped:
         assert cropped.size == (44, 44)
+
+
+def test_import_label_studio_export_crops_every_box_in_a_multi_item_label_file(tmp_path):
+    export_dir = tmp_path / "export"
+    images_dir = export_dir / "images"
+    labels_dir = export_dir / "labels"
+    images_dir.mkdir(parents=True)
+    labels_dir.mkdir(parents=True)
+    (export_dir / "classes.txt").write_text("Instant-Noodles/Maggi/Curry\nChocolate/Cadbury/Dairy-Milk\n")
+    Image.new("RGB", (200, 200)).save(images_dir / "flatlay_001.jpg")
+    (labels_dir / "flatlay_001.txt").write_text("0 0.25 0.25 0.2 0.2\n1 0.75 0.75 0.2 0.2\n")
+    dest_dirs = {
+        "Instant-Noodles": tmp_path / "dest" / "noodles",
+        "Chocolate": tmp_path / "dest" / "chocolate",
+    }
+
+    written = import_label_studio_export(export_dir, dest_dirs)
+
+    assert written == [
+        dest_dirs["Instant-Noodles"] / "flatlay_001_0.jpg",
+        dest_dirs["Chocolate"] / "flatlay_001_1.jpg",
+    ]
+
+
+def test_import_label_studio_export_skips_boxes_with_unmatched_category(tmp_path):
+    export_dir = tmp_path / "export"
+    images_dir = export_dir / "images"
+    labels_dir = export_dir / "labels"
+    images_dir.mkdir(parents=True)
+    labels_dir.mkdir(parents=True)
+    (export_dir / "classes.txt").write_text("Fruit/Apple\n")
+    Image.new("RGB", (100, 100)).save(images_dir / "sample_001.jpg")
+    (labels_dir / "sample_001.txt").write_text("0 0.5 0.5 0.4 0.4\n")
+
+    written = import_label_studio_export(export_dir, {"Instant-Noodles": tmp_path / "dest"})
+
+    assert written == []
 
 
 def test_import_label_studio_export_skips_label_files_without_matching_image(tmp_path):
@@ -57,9 +125,10 @@ def test_import_label_studio_export_skips_label_files_without_matching_image(tmp
     (export_dir / "images").mkdir(parents=True)
     labels_dir = export_dir / "labels"
     labels_dir.mkdir(parents=True)
+    (export_dir / "classes.txt").write_text("Instant-Noodles/Maggi/Curry\n")
     (labels_dir / "orphan.txt").write_text("0 0.5 0.5 0.4 0.4\n")
 
-    written = import_label_studio_export(export_dir, tmp_path / "dest")
+    written = import_label_studio_export(export_dir, {"Instant-Noodles": tmp_path / "dest"})
 
     assert written == []
 
@@ -70,9 +139,10 @@ def test_import_label_studio_export_skips_empty_label_files(tmp_path):
     labels_dir = export_dir / "labels"
     images_dir.mkdir(parents=True)
     labels_dir.mkdir(parents=True)
+    (export_dir / "classes.txt").write_text("Instant-Noodles/Maggi/Curry\n")
     Image.new("RGB", (50, 50)).save(images_dir / "empty_001.jpg")
     (labels_dir / "empty_001.txt").write_text("")
 
-    written = import_label_studio_export(export_dir, tmp_path / "dest")
+    written = import_label_studio_export(export_dir, {"Instant-Noodles": tmp_path / "dest"})
 
     assert written == []

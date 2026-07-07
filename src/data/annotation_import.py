@@ -36,10 +36,29 @@ def crop_with_padding(
     return image.crop(padded_box)
 
 
-def import_label_studio_export(export_dir: Path, dest_dir: Path) -> list[Path]:
-    """Reads a Label Studio YOLO-format export and writes one cropped photo per
-    label file into dest_dir, matching images to labels by filename stem."""
-    dest_dir.mkdir(parents=True, exist_ok=True)
+def load_class_names(export_dir: Path) -> dict[int, str]:
+    """Reads Label Studio's classes.txt (one class name per line, indexed by line number = class_id)."""
+    lines = (export_dir / "classes.txt").read_text().splitlines()
+    return {idx: name for idx, name in enumerate(lines)}
+
+
+def classify_category(class_name: str, category_keywords: dict[str, Path]) -> Path | None:
+    """Matches a class name against category keywords (substring match), returning the
+    corresponding destination directory, or None if no keyword matches."""
+    for keyword, dest_dir in category_keywords.items():
+        if keyword in class_name:
+            return dest_dir
+    return None
+
+
+def import_label_studio_export(export_dir: Path, category_keywords: dict[str, Path]) -> list[Path]:
+    """Reads a Label Studio YOLO-format export (shared images/labels/classes.txt covering
+    multiple categories) and crops every bounding box in every label file, routing each
+    crop into the destination directory whose keyword matches that box's class name."""
+    for dest_dir in category_keywords.values():
+        dest_dir.mkdir(parents=True, exist_ok=True)
+
+    class_names = load_class_names(export_dir)
     images_dir = export_dir / "images"
     labels_dir = export_dir / "labels"
     written: list[Path] = []
@@ -58,10 +77,19 @@ def import_label_studio_export(export_dir: Path, dest_dir: Path) -> list[Path]:
             continue
 
         with Image.open(image_path).convert("RGB") as img:
-            box = parse_yolo_bbox_line(lines[0], img.width, img.height)
-            cropped = crop_with_padding(img, box)
-            dest_path = dest_dir / image_path.name
-            cropped.save(dest_path)
-            written.append(dest_path)
+            for box_index, line in enumerate(lines):
+                class_name = class_names.get(int(line.split()[0]))
+                if class_name is None:
+                    continue
+
+                dest_dir = classify_category(class_name, category_keywords)
+                if dest_dir is None:
+                    continue
+
+                box = parse_yolo_bbox_line(line, img.width, img.height)
+                cropped = crop_with_padding(img, box)
+                dest_path = dest_dir / f"{image_path.stem}_{box_index}{image_path.suffix}"
+                cropped.save(dest_path)
+                written.append(dest_path)
 
     return written
