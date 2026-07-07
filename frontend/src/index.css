@@ -1,0 +1,19 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    @apply h-full;
+  }
+
+  body {
+    @apply m-0 bg-canvas text-text-hi font-sans antialiased;
+  }
+
+  ::selection {
+    @apply bg-accent-cyan/30 text-text-hi;
+  }
+}

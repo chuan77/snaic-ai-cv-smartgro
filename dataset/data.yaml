@@ -1,0 +1,6 @@
+# Baseline Controlled Scene Dataset Configuration
+train: ../dataset/train/images
+val: ../dataset/val/images
+
+nc: 3
+names: ['milk_carton', 'potato_bag', 'soda_can']

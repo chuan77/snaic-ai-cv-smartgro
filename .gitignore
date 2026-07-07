@@ -9,5 +9,28 @@ wheels/
 # Virtual environments
 .venv
 
+# Test caches
+.pytest_cache/
+
 # OS artifacts
 .DS_Store
+
+# Frontend (frontend/)
+frontend/node_modules/
+frontend/dist/
+
+# Pipeline-generated artifacts (regenerate via main_dayN_*.py, not source of truth)
+artifacts/
+catalog_prices.csv
+gallery_meta.csv
+gallery_index.npy
+runs/
+synthetic_dataset/
+dataset_filtered/
+
+# Model weights (pretrained/downloaded, e.g. yolo11n.pt)
+*.pt
+
+# Large datasets cloned/exported separately
+dataset/GroceryStoreDataset/
+dataset/raw_photos/images/
