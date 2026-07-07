@@ -1,12 +1,14 @@
 import { motion } from 'framer-motion'
 import { UploadCloud } from 'lucide-react'
-import { type DragEvent, useRef, useState } from 'react'
+import { type DragEvent, useEffect, useRef, useState } from 'react'
 import Webcam from 'react-webcam'
 import { DebugPanel } from '@/components/DebugPanel'
 import { DetectionOverlay } from '@/components/DetectionOverlay'
 import { Button } from '@/components/ui/Button'
 import { cn } from '@/lib/utils'
 import { useSmartCart } from '@/hooks/useSmartCart'
+
+const RESUME_DELAY_MS = 1000
 
 const GRID_BACKGROUND = {
   backgroundImage:
@@ -37,12 +39,29 @@ export function CameraFeed() {
   const setFeedImage = useSmartCart((state) => state.setFeedImage)
   const runDetection = useSmartCart((state) => state.runDetection)
   const clearCart = useSmartCart((state) => state.clearCart)
+  const resumeLive = useSmartCart((state) => state.resumeLive)
   const debugMode = useSmartCart((state) => state.debugMode)
   const toggleDebugMode = useSmartCart((state) => state.toggleDebugMode)
 
   const webcamRef = useRef<Webcam>(null)
+  const resumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [isDragOver, setIsDragOver] = useState(false)
   const [webcamReady, setWebcamReady] = useState(false)
+
+  useEffect(() => {
+    return () => {
+      if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current)
+    }
+  }, [])
+
+  const detectAndScheduleResume = async (files: File[]) => {
+    await runDetection(files)
+    if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current)
+    resumeTimerRef.current = setTimeout(() => {
+      resumeLive()
+      resumeTimerRef.current = null
+    }, RESUME_DELAY_MS)
+  }
 
   const handleDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault()
@@ -50,7 +69,7 @@ export function CameraFeed() {
     const files = Array.from(event.dataTransfer.files).filter((file) => file.type.startsWith('image/'))
     if (!files.length) return
     setFeedImage(URL.createObjectURL(files[files.length - 1]))
-    void runDetection(files)
+    void detectAndScheduleResume(files)
   }
 
   const handleFreezeAndDetect = async () => {
@@ -59,7 +78,15 @@ export function CameraFeed() {
     const blob = await fetch(screenshot).then((res) => res.blob())
     const capture = new File([blob], 'capture.jpg', { type: blob.type })
     setFeedImage(screenshot)
-    void runDetection([capture])
+    await detectAndScheduleResume([capture])
+  }
+
+  const handleReset = () => {
+    if (resumeTimerRef.current) {
+      clearTimeout(resumeTimerRef.current)
+      resumeTimerRef.current = null
+    }
+    clearCart()
   }
 
   const showEmptyState = !feedImage && !webcamReady

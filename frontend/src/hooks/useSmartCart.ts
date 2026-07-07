@@ -26,6 +26,7 @@ interface SmartCartState {
   runDetection: (files: File[]) => Promise<void>
   toggleLine: (lineId: string) => void
   clearCart: () => void
+  resumeLive: () => void
   toggleDebugMode: () => void
 }
 
@@ -102,6 +103,13 @@ export const useSmartCart = create<SmartCartState>((set, get) => ({
       detections: [],
       detectionAccents: {},
       feedImage: null,
+    }),
+
+  resumeLive: () =>
+    set({
+      feedImage: null,
+      detections: [],
+      detectionAccents: {},
     }),
 
   toggleDebugMode: () => set((state) => ({ debugMode: !state.debugMode })),

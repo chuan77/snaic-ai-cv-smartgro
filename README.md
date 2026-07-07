@@ -34,4 +34,4 @@ A second, self-contained copy of the same logic lives under `scripts/main_dayN_*
 - `dataset/`: Raw GroceryStoreDataset source.
 - `synthetic_dataset/`: Procedurally generated training/val scenes.
 - `artifacts/`: Day 1 outputs (product catalog, embedding gallery).
-- `runs/`: Training logs and model weights.
+- `runs/`: Training logs and model weights.# snaic-ai-cv-smartgro
