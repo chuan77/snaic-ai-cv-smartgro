@@ -12,7 +12,7 @@ Add `python-dotenv` (`>=1.0.0`) to `pyproject.toml` dependencies. This is a new 
 
 No settings/config class is introduced. Given there are only six flat, independent values and no existing config-object abstraction anywhere in this codebase, a `pydantic-settings`-style class would be new ceremony for no real benefit — plain `os.environ.get(KEY, default)` calls, consistent with the existing `SMARTCART_WEIGHTS_PATH` line, are used throughout.
 
-`load_dotenv()` is called once, at the top of `main_api_server.py`, before `uvicorn.run(...)` — this is the process entrypoint, so the environment is populated before anything else (including the `src.deploy.api_server` import) reads it.
+`load_dotenv()` is called once, at module scope in `src/deploy/api_server.py`, near the top of the file — not in `main_api_server.py`. This matters because `SMARTCART_RELOAD` defaults to enabling uvicorn's `--reload`, which spawns a worker process that imports the `"src.deploy.api_server:app"` string directly and never executes `main_api_server.py`'s `__main__` block. Loading the `.env` inside the imported module itself means both the entrypoint process and the reload worker see it; loading it only in `main_api_server.py` would leave the reload worker silently running on defaults.
 
 ### Variables
 
@@ -30,8 +30,8 @@ No settings/config class is introduced. Given there are only six flat, independe
 - `SMARTCART_CORS_ORIGINS` is comma-separated and split into a list, so multiple origins can be allowed (e.g. `http://localhost:5173,http://127.0.0.1:5173`) without further code changes.
 
 ### Files touched
-- `main_api_server.py`: add `load_dotenv()` call; read `SMARTCART_HOST`/`SMARTCART_PORT`/`SMARTCART_RELOAD` and pass to `uvicorn.run(...)`.
-- `src/deploy/api_server.py`: replace `DEFAULT_CATALOG_PATH` constant and the hardcoded `allow_origins` list with env-driven reads (module-level, same style as the existing `get_detector()` env read).
+- `main_api_server.py`: read `SMARTCART_HOST`/`SMARTCART_PORT`/`SMARTCART_RELOAD` (via `get_server_config()`) and pass to `uvicorn.run(...)`.
+- `src/deploy/api_server.py`: add the `load_dotenv()` call; replace `DEFAULT_CATALOG_PATH` constant and the hardcoded `allow_origins` list with env-driven reads (module-level, same style as the existing `get_detector()` env read).
 - `pyproject.toml`: add `python-dotenv` dependency.
 
 ## Frontend: `frontend/.env`, Vite's native mechanism (no new dependency)

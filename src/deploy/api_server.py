@@ -14,6 +14,9 @@ from PIL import Image
 
 from src.models.yolo_detector import YoloDetector
 
+# Loaded here, not in main_api_server.py: uvicorn's --reload worker imports this
+# module directly and never runs main_api_server.py's __main__ block, so loading
+# .env only in the entrypoint would leave the reload worker on defaults.
 load_dotenv()
 
 DEFAULT_WEIGHTS_PATH = Path("./runs/detect/train/weights/best.pt")
