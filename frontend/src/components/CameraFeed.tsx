@@ -152,7 +152,7 @@ export function CameraFeed() {
         <Button variant="primary" onClick={handleFreezeAndDetect} disabled={!webcamReady || isProcessing}>
           Freeze &amp; Detect
         </Button>
-        <Button variant="secondary" onClick={clearCart}>
+        <Button variant="secondary" onClick={handleReset}>
           Reset
         </Button>
         <Button
