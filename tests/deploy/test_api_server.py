@@ -1,4 +1,5 @@
 import io
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -9,9 +10,13 @@ from src.deploy.api_server import (
     app,
     build_detections,
     get_catalog,
+    get_catalog_path,
+    get_cors_origins,
     get_detector,
+    get_server_config,
     leaf_display_name,
     load_catalog,
+    parse_bool_env,
     xyxy_to_fractional_xywh,
 )
 
@@ -24,6 +29,66 @@ from src.deploy.api_server import (
 ])
 def test_leaf_display_name_derives_human_readable_label(product_name, expected):
     assert leaf_display_name(product_name) == expected
+
+
+def test_get_cors_origins_defaults_to_localhost_5173(monkeypatch):
+    monkeypatch.delenv("SMARTCART_CORS_ORIGINS", raising=False)
+
+    assert get_cors_origins() == ["http://localhost:5173"]
+
+
+def test_get_cors_origins_splits_comma_separated_values_and_strips_whitespace(monkeypatch):
+    monkeypatch.setenv("SMARTCART_CORS_ORIGINS", "http://localhost:5173, http://127.0.0.1:5173 ,http://example.com")
+
+    assert get_cors_origins() == [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://example.com",
+    ]
+
+
+def test_get_catalog_path_defaults_to_artifacts_catalog_prices_csv(monkeypatch):
+    monkeypatch.delenv("SMARTCART_CATALOG_PATH", raising=False)
+
+    assert get_catalog_path() == Path("./artifacts/catalog_prices.csv")
+
+
+def test_get_catalog_path_reads_from_environment(monkeypatch, tmp_path):
+    custom_path = tmp_path / "custom_catalog.csv"
+    monkeypatch.setenv("SMARTCART_CATALOG_PATH", str(custom_path))
+
+    assert get_catalog_path() == custom_path
+
+
+@pytest.mark.parametrize("value,expected", [
+    ("true", True),
+    ("True", True),
+    ("1", True),
+    ("yes", True),
+    ("false", False),
+    ("False", False),
+    ("0", False),
+    ("no", False),
+    ("", False),
+])
+def test_parse_bool_env_recognizes_truthy_and_falsy_strings(value, expected):
+    assert parse_bool_env(value) is expected
+
+
+def test_get_server_config_uses_defaults_when_env_unset(monkeypatch):
+    monkeypatch.delenv("SMARTCART_HOST", raising=False)
+    monkeypatch.delenv("SMARTCART_PORT", raising=False)
+    monkeypatch.delenv("SMARTCART_RELOAD", raising=False)
+
+    assert get_server_config() == {"host": "0.0.0.0", "port": 8000, "reload": True}
+
+
+def test_get_server_config_reads_from_environment(monkeypatch):
+    monkeypatch.setenv("SMARTCART_HOST", "127.0.0.1")
+    monkeypatch.setenv("SMARTCART_PORT", "9090")
+    monkeypatch.setenv("SMARTCART_RELOAD", "false")
+
+    assert get_server_config() == {"host": "127.0.0.1", "port": 9090, "reload": False}
 
 
 def test_xyxy_to_fractional_xywh_converts_pixel_box_to_fractional_top_left_xywh():

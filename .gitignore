@@ -15,6 +15,10 @@ wheels/
 # OS artifacts
 .DS_Store
 
+# Environment configuration (copy .env.example -> .env)
+.env
+frontend/.env
+
 # Frontend (frontend/)
 frontend/node_modules/
 frontend/dist/

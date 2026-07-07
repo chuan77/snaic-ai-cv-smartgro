@@ -7,19 +7,48 @@ import uuid
 
 import numpy as np
 import pandas as pd
+from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
 
 from src.models.yolo_detector import YoloDetector
 
+# Loaded here, not in main_api_server.py: uvicorn's --reload worker imports this
+# module directly and never runs main_api_server.py's __main__ block, so loading
+# .env only in the entrypoint would leave the reload worker on defaults.
+load_dotenv()
+
 DEFAULT_WEIGHTS_PATH = Path("./runs/detect/train/weights/best.pt")
 DEFAULT_CATALOG_PATH = Path("./artifacts/catalog_prices.csv")
+DEFAULT_CORS_ORIGINS = "http://localhost:5173"
+
+
+def get_cors_origins() -> list[str]:
+    raw = os.environ.get("SMARTCART_CORS_ORIGINS", DEFAULT_CORS_ORIGINS)
+    return [origin.strip() for origin in raw.split(",") if origin.strip()]
+
+
+def get_catalog_path() -> Path:
+    return Path(os.environ.get("SMARTCART_CATALOG_PATH", str(DEFAULT_CATALOG_PATH)))
+
+
+def parse_bool_env(value: str) -> bool:
+    return value.strip().lower() in ("1", "true", "yes")
+
+
+def get_server_config() -> dict[str, str | int | bool]:
+    return {
+        "host": os.environ.get("SMARTCART_HOST", "0.0.0.0"),
+        "port": int(os.environ.get("SMARTCART_PORT", "8000")),
+        "reload": parse_bool_env(os.environ.get("SMARTCART_RELOAD", "true")),
+    }
+
 
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=get_cors_origins(),
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -55,7 +84,7 @@ def load_catalog(csv_path: Path) -> list[dict]:
 
 @lru_cache
 def get_catalog() -> list[dict]:
-    return load_catalog(DEFAULT_CATALOG_PATH)
+    return load_catalog(get_catalog_path())
 
 
 @app.get("/catalog")
