@@ -27,4 +27,13 @@ if __name__ == "__main__":
     
     # Initialize YOLO Network Training Optimization Model
     model = YOLO("yolo11n.pt")
-    model.train(data=str(ypath), epochs=20, imgsz=640, device="mps", workers=2, name="train", exist_ok=True)
+    model.train(
+        data=str(ypath),
+        epochs=20,
+        imgsz=640,
+        device="mps",
+        workers=2,
+        project=str(Path("./runs/detect").resolve()),
+        name="train",
+        exist_ok=True,
+    )
