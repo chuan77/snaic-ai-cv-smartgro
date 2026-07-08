@@ -8,6 +8,8 @@ called from any entrypoint.
 import os
 import logging
 from pathlib import Path
+import hashlib
+import random
 import numpy as np
 import pandas as pd
 from PIL import Image
@@ -29,6 +31,14 @@ def get_base_price(class_str: str) -> float:
     }
     top_level = class_str.split("/")[0]
     return category_prices.get(top_level, 1.75)
+
+
+def get_item_price(class_str: str) -> float:
+    """Derives a stable, per-item charm price by jittering the category base ±15%."""
+    base = get_base_price(class_str)
+    seed = int(hashlib.sha256(class_str.encode()).hexdigest(), 16)
+    jittered = base * random.Random(seed).uniform(0.85, 1.15)
+    return round(jittered * 2) / 2 - 0.01
 
 
 class UnifiedProductGallery:
@@ -58,9 +68,9 @@ class UnifiedProductGallery:
             valid_files = sorted([f for f in class_dir.iterdir() if f.is_file() and f.suffix.lower() in GroceryDatasetIndexer.IMAGE_EXTS])
             selected_files = valid_files[:min(len(valid_files), max_samples)]
             
-            # Determine structured base pricing depending on category rules
-            base_price = get_base_price(class_str)
-            catalog_records.append({"class_id": class_id, "product_name": class_str, "price_usd": base_price})
+            # Determine per-item price with randomized jitter around the category base
+            item_price = get_item_price(class_str)
+            catalog_records.append({"class_id": class_id, "product_name": class_str, "price_usd": item_price})
             
             logger.info(f"Indexing Class [{class_id:03d}] -> {class_str} ({len(selected_files)} items)")
             
