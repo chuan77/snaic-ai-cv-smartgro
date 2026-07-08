@@ -38,7 +38,8 @@ def get_item_price(class_str: str) -> float:
     base = get_base_price(class_str)
     seed = int(hashlib.sha256(class_str.encode()).hexdigest(), 16)
     jittered = base * random.Random(seed).uniform(0.85, 1.15)
-    return round(jittered * 2) / 2 - 0.01
+    price = round(jittered * 10) / 10 - 0.01
+    return round(price, 2)
 
 
 class UnifiedProductGallery:
