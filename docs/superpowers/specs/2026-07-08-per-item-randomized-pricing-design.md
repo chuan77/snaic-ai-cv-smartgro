@@ -19,12 +19,13 @@ def get_item_price(class_str: str) -> float:
     base = get_base_price(class_str)
     seed = int(hashlib.sha256(class_str.encode()).hexdigest(), 16)
     jittered = base * random.Random(seed).uniform(0.85, 1.15)
-    return round(jittered * 2) / 2 - 0.01   # nearest half-dollar, then charm to .49/.99
+    price = round(jittered * 10) / 10 - 0.01   # nearest dime, then charm to an X.X9 ending
+    return round(price, 2)                     # clear floating-point rounding artifacts (e.g. 2.5900000000000003)
 ```
 
 - **Jitter**: ±15% around the category base price (e.g. `Snacks` base $6.20 → raw range ~$5.27–$7.13).
 - **Determinism**: the RNG is seeded from a SHA-256 hash of `class_str` (the full dataset-relative class path, e.g. `"Fruit/Apple/Royal-Gala"`), not Python's built-in `hash()` (which is randomized per-process for strings via `PYTHONHASHSEED`). The same product always resolves to the same price across repeated Day-1 runs.
-- **Charm pricing**: the jittered value is rounded to the nearest $0.50 increment, then $0.01 is subtracted, snapping every price to a `.49` or `.99` ending (e.g. raw $5.27 → nearest half-dollar $5.50 → charmed $5.49; raw $6.83 → nearest half-dollar $7.00 → charmed $6.99).
+- **Charm pricing**: the jittered value is rounded to the nearest $0.10 increment, then $0.01 is subtracted, snapping every price to an `X.X9` ending (e.g. raw $5.27 → nearest dime $5.30 → charmed $5.29; raw $6.83 → nearest dime $6.80 → charmed $6.79). Rounding to the nearest dime (not half-dollar) was chosen after review found that a $0.50 grain collapses the $1.75 default tier (the majority of products, since it's the catch-all for every category except Packages/Ready-To-Eat/Snacks) to just two possible prices ($1.49/$1.99) regardless of jitter width — the grain, not the jitter range, was the bottleneck. A $0.10 grain gives the $1.75 tier 6 distinct prices and the $6.20 tier ~19, under simulation across 500 sample product names.
 
 `get_base_price` itself is unchanged — it remains the source of truth for which price *tier* (category) an item belongs to.
 
@@ -65,5 +66,5 @@ No test suite exists in this repo, and exercising the full Day-1 pipeline requir
 
 1. Calling it with several class strings from the same category produces different prices (per-item variation within a category).
 2. Calling it twice with the same class string produces the identical price (determinism).
-3. All returned prices end in `.49` or `.99` (charm pricing).
+3. All returned prices end in an `X.X9` charm ending.
 4. Prices stay in a sane range relative to their category base (no negative or wildly out-of-range values).
