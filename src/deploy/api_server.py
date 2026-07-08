@@ -10,8 +10,12 @@ import pandas as pd
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from PIL import Image
 
+from src.deploy.active_learning_capture import get_capture_dir, maybe_capture
+from src.deploy.detector import get_detector
+from src.deploy.label_studio_backend import router as ls_router
 from src.models.yolo_detector import YoloDetector
 
 # Loaded here, not in main_api_server.py: uvicorn's --reload worker imports this
@@ -19,7 +23,6 @@ from src.models.yolo_detector import YoloDetector
 # .env only in the entrypoint would leave the reload worker on defaults.
 load_dotenv()
 
-DEFAULT_WEIGHTS_PATH = Path("./runs/detect/train/weights/best.pt")
 DEFAULT_CATALOG_PATH = Path("./artifacts/catalog_prices.csv")
 DEFAULT_CORS_ORIGINS = "http://localhost:5173"
 
@@ -52,6 +55,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.include_router(ls_router, prefix="/ls")
+get_capture_dir().mkdir(parents=True, exist_ok=True)
+app.mount("/staging", StaticFiles(directory=str(get_capture_dir())), name="staging")
 
 
 def leaf_display_name(product_name: str) -> str:
@@ -92,12 +98,6 @@ def catalog_endpoint(catalog: list[dict] = Depends(get_catalog)) -> list[dict]:
     return catalog
 
 
-@lru_cache
-def get_detector() -> YoloDetector:
-    weights_path = Path(os.environ.get("SMARTCART_WEIGHTS_PATH", str(DEFAULT_WEIGHTS_PATH)))
-    return YoloDetector(weights_path)
-
-
 def build_detections(detections: list[dict], img_width: int, img_height: int) -> list[dict]:
     return [
         {
@@ -115,4 +115,5 @@ def predict_endpoint(file: UploadFile, detector: YoloDetector = Depends(get_dete
     image = Image.open(file.file).convert("RGB")
     frame_rgb = np.array(image)
     detections = detector.detect(frame_rgb)
+    maybe_capture(image, detections)
     return build_detections(detections, image.width, image.height)

@@ -42,6 +42,7 @@ export function CameraFeed() {
   const resumeLive = useSmartCart((state) => state.resumeLive)
   const debugMode = useSmartCart((state) => state.debugMode)
   const toggleDebugMode = useSmartCart((state) => state.toggleDebugMode)
+  const isCheckedOut = useSmartCart((state) => state.isCheckedOut)
 
   const webcamRef = useRef<Webcam>(null)
   const resumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -53,6 +54,13 @@ export function CameraFeed() {
       if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current)
     }
   }, [])
+
+  useEffect(() => {
+    if (isCheckedOut && resumeTimerRef.current) {
+      clearTimeout(resumeTimerRef.current)
+      resumeTimerRef.current = null
+    }
+  }, [isCheckedOut])
 
   const detectAndScheduleResume = async (files: File[]) => {
     await runDetection(files)
@@ -66,6 +74,7 @@ export function CameraFeed() {
   const handleDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault()
     setIsDragOver(false)
+    if (isCheckedOut) return
     const files = Array.from(event.dataTransfer.files).filter((file) => file.type.startsWith('image/'))
     if (!files.length) return
     setFeedImage(URL.createObjectURL(files[files.length - 1]))
@@ -149,10 +158,10 @@ export function CameraFeed() {
       </p>
 
       <div className="mt-4 flex items-center gap-3">
-        <Button variant="primary" onClick={handleFreezeAndDetect} disabled={!webcamReady || isProcessing}>
+        <Button variant="primary" onClick={handleFreezeAndDetect} disabled={!webcamReady || isProcessing || isCheckedOut}>
           Freeze &amp; Detect
         </Button>
-        <Button variant="secondary" onClick={handleReset}>
+        <Button variant="secondary" onClick={handleReset} disabled={isCheckedOut}>
           Reset
         </Button>
         <Button

@@ -20,6 +20,7 @@ interface SmartCartState {
   error: string | null
   debugMode: boolean
   debugLog: MatchExplanation[]
+  isCheckedOut: boolean
 
   loadCatalog: () => Promise<void>
   setFeedImage: (src: string | null) => void
@@ -28,6 +29,8 @@ interface SmartCartState {
   clearCart: () => void
   resumeLive: () => void
   toggleDebugMode: () => void
+  checkout: () => void
+  closeReceipt: () => void
 }
 
 export const useSmartCart = create<SmartCartState>((set, get) => ({
@@ -40,6 +43,7 @@ export const useSmartCart = create<SmartCartState>((set, get) => ({
   error: null,
   debugMode: false,
   debugLog: [],
+  isCheckedOut: false,
 
   loadCatalog: async () => {
     const catalog = await api.getCatalog()
@@ -79,12 +83,15 @@ export const useSmartCart = create<SmartCartState>((set, get) => ({
         })
       }
 
-      set((state) => ({
-        detections: flatDetections,
-        detectionAccents,
-        cartLines: [...state.cartLines, ...newRows],
-        debugLog: [...explanations.reverse(), ...state.debugLog].slice(0, MAX_DEBUG_LOG),
-      }))
+      set((state) => {
+        if (state.isCheckedOut) return state
+        return {
+          detections: flatDetections,
+          detectionAccents,
+          cartLines: [...state.cartLines, ...newRows],
+          debugLog: [...explanations.reverse(), ...state.debugLog].slice(0, MAX_DEBUG_LOG),
+        }
+      })
     } catch {
       set({ error: 'Detection failed' })
     } finally {
@@ -113,6 +120,16 @@ export const useSmartCart = create<SmartCartState>((set, get) => ({
     }),
 
   toggleDebugMode: () => set((state) => ({ debugMode: !state.debugMode })),
+
+  checkout: () => {
+    if (selectActiveCount(get()) === 0) return
+    set({ isCheckedOut: true })
+  },
+
+  closeReceipt: () => {
+    get().clearCart()
+    set({ isCheckedOut: false })
+  },
 }))
 
 export const selectTotal = (state: SmartCartState): number =>

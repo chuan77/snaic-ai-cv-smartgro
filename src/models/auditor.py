@@ -12,11 +12,12 @@ class CheckoutModelAuditor:
     def __init__(self, check_weights: Path):
         self.model = YOLO(str(check_weights))
 
-    def perform_validation_audit(self, data_yaml: Path):
+    def perform_validation_audit(self, data_yaml: Path) -> tuple[float, float]:
         logger.info("Executing network validation verification loops...")
         metrics = self.model.val(data=str(data_yaml), device="mps")
-        
+
         # Log localized mean Average Precision parameters
         logger.info(f"Evaluation mAP50-95 Accuracy score: {metrics.box.map:.4f}")
         logger.info(f"Evaluation mAP50 Accuracy score: {metrics.box.map50:.4f}")
         logger.info("Day 3 performance tracking metrics saved successfully.")
+        return float(metrics.box.map50), float(metrics.box.map)

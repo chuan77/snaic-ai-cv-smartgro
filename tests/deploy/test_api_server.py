@@ -179,3 +179,51 @@ def test_predict_endpoint_returns_empty_list_when_no_detections():
     assert response.status_code == 200
     assert response.json() == []
     app.dependency_overrides.clear()
+
+
+def test_predict_endpoint_triggers_capture_hook(monkeypatch):
+    mock_detector = MagicMock()
+    detections = [{"class_name": "Vegetables/Carrots", "confidence": 0.9, "bbox": [0.0, 0.0, 10.0, 10.0]}]
+    mock_detector.detect.return_value = detections
+    app.dependency_overrides[get_detector] = lambda: mock_detector
+    captured = {}
+    monkeypatch.setattr(
+        "src.deploy.api_server.maybe_capture", lambda image, dets: captured.update(image=image, detections=dets)
+    )
+    client = TestClient(app)
+
+    image_bytes = io.BytesIO()
+    Image.new("RGB", (100, 100)).save(image_bytes, format="JPEG")
+    image_bytes.seek(0)
+
+    response = client.post("/predict", files={"file": ("test.jpg", image_bytes, "image/jpeg")})
+
+    assert response.status_code == 200
+    assert captured["detections"] == detections
+    app.dependency_overrides.clear()
+
+
+def test_predict_endpoint_unaffected_when_capture_raises(monkeypatch):
+    mock_detector = MagicMock()
+    mock_detector.detect.return_value = [
+        {"class_name": "Snacks/Chocolate-Bar", "confidence": 0.9, "bbox": [50.0, 100.0, 150.0, 200.0]}
+    ]
+    app.dependency_overrides[get_detector] = lambda: mock_detector
+
+    def raise_error(*args, **kwargs):
+        raise RuntimeError("capture blew up")
+
+    # Patches the lower-level writer (not maybe_capture itself) to prove the
+    # real, unmocked maybe_capture's own safety net protects /predict end-to-end.
+    monkeypatch.setattr("src.deploy.active_learning_capture.capture_frame", raise_error)
+    client = TestClient(app)
+
+    image_bytes = io.BytesIO()
+    Image.new("RGB", (200, 400)).save(image_bytes, format="JPEG")
+    image_bytes.seek(0)
+
+    response = client.post("/predict", files={"file": ("test.jpg", image_bytes, "image/jpeg")})
+
+    assert response.status_code == 200
+    assert response.json()[0]["label"] == "Snacks/Chocolate-Bar"
+    app.dependency_overrides.clear()

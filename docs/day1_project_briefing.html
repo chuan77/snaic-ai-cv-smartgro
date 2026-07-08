@@ -1,0 +1,602 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SmartCart Project Briefing - Day 1</title>
+  <style>
+    :root {
+      --ink: #17202a;
+      --muted: #5b6773;
+      --paper: #fbfbf8;
+      --line: #d8dfd8;
+      --green: #2d6a4f;
+      --mint: #d8f3dc;
+      --gold: #f2c14e;
+      --coral: #ef6f6c;
+      --blue: #457b9d;
+      --shadow: 0 20px 60px rgba(23, 32, 42, 0.18);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: Inter, Segoe UI, Arial, sans-serif;
+      color: var(--ink);
+      background: #e9efe9;
+      overflow: hidden;
+    }
+
+    .deck {
+      width: 100vw;
+      height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+    }
+
+    .slide {
+      display: none;
+      position: relative;
+      width: min(1280px, 100%);
+      aspect-ratio: 16 / 9;
+      max-height: calc(100vh - 48px);
+      padding: 54px 64px;
+      background: var(--paper);
+      border: 1px solid rgba(23, 32, 42, 0.08);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .slide.active { display: block; }
+
+    .slide::after {
+      content: attr(data-slide);
+      position: absolute;
+      right: 28px;
+      bottom: 22px;
+      color: var(--muted);
+      font-size: 15px;
+    }
+
+    h1, h2, h3, p { margin: 0; }
+
+    h1 {
+      font-size: 72px;
+      line-height: 0.98;
+      letter-spacing: 0;
+      max-width: 820px;
+    }
+
+    h2 {
+      font-size: 48px;
+      line-height: 1.06;
+      letter-spacing: 0;
+      max-width: 920px;
+    }
+
+    h3 {
+      font-size: 25px;
+      line-height: 1.2;
+      letter-spacing: 0;
+    }
+
+    p, li {
+      font-size: 24px;
+      line-height: 1.34;
+    }
+
+    ul {
+      margin: 26px 0 0;
+      padding-left: 28px;
+    }
+
+    li { margin: 12px 0; }
+
+    .kicker {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 26px;
+      color: var(--green);
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      font-size: 16px;
+    }
+
+    .kicker::before {
+      content: "";
+      width: 34px;
+      height: 4px;
+      background: var(--gold);
+      border-radius: 10px;
+    }
+
+    .subtitle {
+      margin-top: 26px;
+      max-width: 780px;
+      color: var(--muted);
+      font-size: 27px;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1.05fr 0.95fr;
+      gap: 52px;
+      align-items: center;
+      height: 100%;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 22px;
+      margin-top: 36px;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 24px;
+      background: white;
+    }
+
+    .card p {
+      margin-top: 12px;
+      color: var(--muted);
+      font-size: 19px;
+    }
+
+    .big-number {
+      color: var(--green);
+      font-size: 56px;
+      font-weight: 900;
+      line-height: 1;
+      margin-bottom: 16px;
+    }
+
+    .pipeline {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 14px;
+      margin-top: 46px;
+    }
+
+    .step {
+      min-height: 208px;
+      padding: 22px;
+      border-radius: 8px;
+      background: white;
+      border: 1px solid var(--line);
+      position: relative;
+    }
+
+    .step:not(:last-child)::after {
+      content: "";
+      position: absolute;
+      right: -14px;
+      top: 50%;
+      width: 14px;
+      height: 3px;
+      background: var(--green);
+    }
+
+    .step .day {
+      color: var(--green);
+      font-weight: 900;
+      font-size: 18px;
+      margin-bottom: 12px;
+    }
+
+    .step h3 { font-size: 22px; }
+    .step p { font-size: 17px; margin-top: 12px; color: var(--muted); }
+
+    .artifact {
+      display: inline-block;
+      margin-top: 12px;
+      padding: 7px 10px;
+      border-radius: 6px;
+      background: var(--mint);
+      color: var(--green);
+      font-size: 15px;
+      font-weight: 800;
+    }
+
+    .mock-app {
+      background: white;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 22px;
+      min-height: 500px;
+    }
+
+    .photo-box {
+      height: 285px;
+      border-radius: 8px;
+      background:
+        linear-gradient(90deg, rgba(255,255,255,0.65), rgba(255,255,255,0.1)),
+        repeating-linear-gradient(135deg, #edf6f2 0 16px, #d8f3dc 16px 32px);
+      border: 1px solid var(--line);
+      position: relative;
+    }
+
+    .item {
+      position: absolute;
+      border: 3px solid var(--coral);
+      border-radius: 6px;
+      background: rgba(239, 111, 108, 0.08);
+      color: var(--ink);
+      font-size: 15px;
+      font-weight: 800;
+      padding: 5px;
+    }
+
+    .item.one { left: 44px; top: 46px; width: 140px; height: 92px; }
+    .item.two { right: 70px; top: 88px; width: 132px; height: 112px; }
+    .item.three { left: 190px; bottom: 34px; width: 170px; height: 82px; }
+
+    .receipt {
+      margin-top: 18px;
+      border-top: 1px solid var(--line);
+      padding-top: 14px;
+      font-size: 18px;
+    }
+
+    .row {
+      display: flex;
+      justify-content: space-between;
+      padding: 7px 0;
+      color: var(--muted);
+    }
+
+    .total {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 10px;
+      padding-top: 12px;
+      border-top: 2px solid var(--ink);
+      font-weight: 900;
+      font-size: 24px;
+    }
+
+    .callout {
+      margin-top: 34px;
+      padding: 24px 28px;
+      border-left: 8px solid var(--gold);
+      background: #fff8df;
+      font-size: 27px;
+      line-height: 1.3;
+      max-width: 900px;
+    }
+
+    .question {
+      font-size: 42px;
+      line-height: 1.15;
+      max-width: 980px;
+      margin-top: 34px;
+    }
+
+    .roles {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+      margin-top: 32px;
+    }
+
+    .role {
+      display: grid;
+      grid-template-columns: 72px 1fr;
+      gap: 18px;
+      align-items: center;
+      background: white;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 18px;
+    }
+
+    .role-icon {
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      background: var(--mint);
+      color: var(--green);
+      font-weight: 900;
+      font-size: 25px;
+    }
+
+    .role p {
+      color: var(--muted);
+      font-size: 18px;
+      margin-top: 4px;
+    }
+
+    .notes {
+      display: none;
+      position: absolute;
+      left: 64px;
+      bottom: 22px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .controls {
+      position: fixed;
+      left: 50%;
+      bottom: 16px;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 10px;
+      z-index: 20;
+    }
+
+    button {
+      border: 0;
+      border-radius: 999px;
+      padding: 10px 16px;
+      color: white;
+      background: var(--green);
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    button.secondary { background: var(--blue); }
+
+    @media print {
+      body { overflow: visible; background: white; }
+      .deck { display: block; width: auto; height: auto; padding: 0; }
+      .slide {
+        display: block !important;
+        width: 100vw;
+        max-height: none;
+        box-shadow: none;
+        page-break-after: always;
+        border: 0;
+      }
+      .controls { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <main class="deck">
+    <section class="slide active" data-slide="1 / 8">
+      <div class="grid-2">
+        <div>
+          <div class="kicker">Project Briefing</div>
+          <h1>Build a miniature AI checkout assistant</h1>
+          <p class="subtitle">By the end of the week, a grocery image becomes detected items, predicted product names, and an estimated basket total.</p>
+          <div class="callout">Day 1 question: how do we give the system a visual memory of products?</div>
+        </div>
+        <div class="mock-app" aria-label="Mock SmartCart final app">
+          <div class="photo-box">
+            <div class="item one">Banana</div>
+            <div class="item two">Orange</div>
+            <div class="item three">Milk</div>
+          </div>
+          <div class="receipt">
+            <div class="row"><span>Banana</span><span>USD 0.80</span></div>
+            <div class="row"><span>Orange</span><span>USD 0.95</span></div>
+            <div class="row"><span>Milk</span><span>USD 1.50</span></div>
+            <div class="total"><span>Total</span><span>USD 3.25</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="notes">Say: this is a proof-of-concept, not a production supermarket system.</div>
+    </section>
+
+    <section class="slide" data-slide="2 / 8">
+      <div class="kicker">The Final Objective</div>
+      <h2>Input: a grocery or counter photo</h2>
+      <div class="grid-3">
+        <div class="card">
+          <div class="big-number">1</div>
+          <h3>Detect items</h3>
+          <p>Find product regions in a scene image.</p>
+        </div>
+        <div class="card">
+          <div class="big-number">2</div>
+          <h3>Recognize products</h3>
+          <p>Predict each crop's product class and similar catalog matches.</p>
+        </div>
+        <div class="card">
+          <div class="big-number">3</div>
+          <h3>Estimate basket</h3>
+          <p>Use an editable price catalog to produce a receipt.</p>
+        </div>
+      </div>
+      <p class="question">The product demo should answer: <strong>what is here, how confident are we, and what is the estimated bill?</strong></p>
+    </section>
+
+    <section class="slide" data-slide="3 / 8">
+      <div class="kicker">Five-Day Story</div>
+      <h2>Each day leaves an artifact the next day needs</h2>
+      <div class="pipeline">
+        <div class="step">
+          <div class="day">Day 1</div>
+          <h3>Know the products</h3>
+          <p>Labels, gallery embeddings, price catalog.</p>
+          <span class="artifact">catalog memory</span>
+        </div>
+        <div class="step">
+          <div class="day">Day 2</div>
+          <h3>Find products</h3>
+          <p>Train a detector on controlled scenes.</p>
+          <span class="artifact">detector.pt</span>
+        </div>
+        <div class="step">
+          <div class="day">Day 3</div>
+          <h3>Recognize crops</h3>
+          <p>Train and diagnose the classifier head.</p>
+          <span class="artifact">head.pt</span>
+        </div>
+        <div class="step">
+          <div class="day">Day 4</div>
+          <h3>Improve weak classes</h3>
+          <p>Augmentation first; cGAN option for innovation.</p>
+          <span class="artifact">head_v2.pt</span>
+        </div>
+        <div class="step">
+          <div class="day">Day 5</div>
+          <h3>Ship a demo</h3>
+          <p>ONNX export and Gradio checkout app.</p>
+          <span class="artifact">demo app</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" data-slide="4 / 8">
+      <div class="grid-2">
+        <div>
+          <div class="kicker">Day 1 Focus</div>
+          <h2>Turn a dataset into a product catalog</h2>
+          <ul>
+            <li>Load real GroceryStoreDataset images.</li>
+            <li>Use folder names as product labels.</li>
+            <li>Create visual embeddings with a frozen backbone.</li>
+            <li>Build a gallery index for product search.</li>
+            <li>Create an editable price catalog.</li>
+          </ul>
+        </div>
+        <div>
+          <div class="card">
+            <h3>Day 1 carry-forward</h3>
+            <p>Saved to Google Drive bundle:</p>
+            <ul>
+              <li><code>labels.csv</code></li>
+              <li><code>gallery_index.npy</code></li>
+              <li><code>gallery_meta.csv</code></li>
+              <li><code>catalog_prices.csv</code></li>
+              <li><code>manifest.json</code></li>
+            </ul>
+          </div>
+          <div class="callout">Motivation: before the cart can recognize products, it needs product memory.</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" data-slide="5 / 8">
+      <div class="kicker">What You Actually Do</div>
+      <h2>Run the notebook, but think like an AI product team</h2>
+      <div class="roles">
+        <div class="role">
+          <div class="role-icon">D1</div>
+          <div><h3>Data engineer</h3><p>Build clean labels and catalog assets.</p></div>
+        </div>
+        <div class="role">
+          <div class="role-icon">D2</div>
+          <div><h3>Detection engineer</h3><p>Teach the system where products are.</p></div>
+        </div>
+        <div class="role">
+          <div class="role-icon">D3</div>
+          <div><h3>Model evaluator</h3><p>Find errors, not just one accuracy number.</p></div>
+        </div>
+        <div class="role">
+          <div class="role-icon">D4</div>
+          <div><h3>Improvement scientist</h3><p>Test whether augmentation or cGAN data helps.</p></div>
+        </div>
+        <div class="role">
+          <div class="role-icon">D5</div>
+          <div><h3>Deployment engineer</h3><p>Export, serve, and demo the pipeline.</p></div>
+        </div>
+        <div class="role">
+          <div class="role-icon">P</div>
+          <div><h3>Product thinker</h3><p>Make the final checkout useful and explainable.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" data-slide="6 / 8">
+      <div class="kicker">Where Innovation Fits</div>
+      <h2>Every team can improve one part of the pipeline</h2>
+      <div class="grid-3">
+        <div class="card">
+          <h3>D1 - Data and catalog</h3>
+          <p>Better splits, label audits, richer prices, categories, local currency.</p>
+        </div>
+        <div class="card">
+          <h3>D2 - Detection</h3>
+          <p>More realistic scenes, better YOLO settings, harder backgrounds.</p>
+        </div>
+        <div class="card">
+          <h3>D3 - Recognition</h3>
+          <p>Confidence thresholds, nearest neighbors, stronger heads.</p>
+        </div>
+        <div class="card">
+          <h3>D4 - Augmentation</h3>
+          <p>Classical augmentation baseline; optional cGAN or equivalent generation.</p>
+        </div>
+        <div class="card">
+          <h3>D5 - Explainability</h3>
+          <p>Show similar catalog images and Grad-CAM evidence.</p>
+        </div>
+        <div class="card">
+          <h3>Final app</h3>
+          <p>Editable receipt, unknown items, confidence warnings, discounts.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" data-slide="7 / 8">
+      <div class="grid-2">
+        <div>
+          <div class="kicker">Important Boundaries</div>
+          <h2>Be honest about what the demo is and is not</h2>
+          <ul>
+            <li>It is a proof-of-concept smart-cart assistant.</li>
+            <li>It is not barcode-level SKU recognition.</li>
+            <li>Prices are editable demo catalog data.</li>
+            <li>Validation metrics matter more than pretty outputs.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>Success by Day 5</h3>
+          <p>A user uploads a grocery image and gets an annotated image plus receipt-style output.</p>
+          <div class="callout">The system is useful when it can explain mistakes and estimate uncertainty, not only when it looks impressive.</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" data-slide="8 / 8">
+      <div class="kicker">Day 1 Launch</div>
+      <h2>Today's mission</h2>
+      <p class="question">Build the product memory that the rest of the smart-cart system will depend on.</p>
+      <div class="grid-3">
+        <div class="card"><h3>Confirm real data</h3><p>Use GroceryStoreDataset from GitHub.</p></div>
+        <div class="card"><h3>Create artifacts</h3><p>Labels, embeddings, gallery, prices.</p></div>
+        <div class="card"><h3>Save the bundle</h3><p>Day 2 starts from what Day 1 leaves behind.</p></div>
+      </div>
+      <div class="callout">If this were your checkout app, what failure would annoy users most?</div>
+    </section>
+  </main>
+
+  <nav class="controls" aria-label="Slide controls">
+    <button id="prev" type="button">Previous</button>
+    <button id="next" type="button">Next</button>
+    <button id="print" class="secondary" type="button">Print/PDF</button>
+  </nav>
+
+  <script>
+    const slides = Array.from(document.querySelectorAll(".slide"));
+    let current = 0;
+
+    function show(index) {
+      current = Math.max(0, Math.min(index, slides.length - 1));
+      slides.forEach((slide, i) => slide.classList.toggle("active", i === current));
+    }
+
+    document.getElementById("prev").addEventListener("click", () => show(current - 1));
+    document.getElementById("next").addEventListener("click", () => show(current + 1));
+    document.getElementById("print").addEventListener("click", () => window.print());
+
+    window.addEventListener("keydown", (event) => {
+      if (["ArrowRight", "PageDown", " "].includes(event.key)) show(current + 1);
+      if (["ArrowLeft", "PageUp", "Backspace"].includes(event.key)) show(current - 1);
+      if (event.key === "Home") show(0);
+      if (event.key === "End") show(slides.length - 1);
+    });
+  </script>
+</body>
+</html>
