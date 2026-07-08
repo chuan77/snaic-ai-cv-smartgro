@@ -147,7 +147,22 @@ After importing new Label Studio annotations for `Ready-To-Eat/Instant-Noodles` 
 
 The weak class here was **not** `Snacks/Chocolate-Bar` — that class scored 0.966 mAP50 in the baseline retrain, since the Label Studio import had already raised its image count well past "weakest." The actual weakest class was found by reading the baseline retrain's own audit table, then pointing `EnvironmentalStressAugmentor.optimize_target_classes()` at that class's id directly against `synthetic_dataset_retrain/retrain_20260708_184220/train/{images,labels}`, followed by a second training pass (same `data.yaml`, fresh `yolo11n.pt`) into its own isolated run.
 
-Overall metrics held steady and the targeted class improved, but several unrelated classes shifted by a comparable magnitude in both directions — with only one training run per candidate, this is a directionally positive single data point, not strong evidence of a reliable causal effect. Neither candidate has been promoted to `SMARTCART_WEIGHTS_PATH` yet.
+Overall metrics held steady and the targeted class improved, but several unrelated classes shifted by a comparable magnitude in both directions — with only one training run per candidate, this is a directionally positive single data point, not strong evidence of a reliable causal effect. **`retrain_20260708_184220` (the baseline, pre-stress-augmentation candidate) is the one actually promoted to `SMARTCART_WEIGHTS_PATH`** — the stress-augmented run's mixed per-class effects weren't judged worth it over the simpler baseline lineage.
+
+Ultralytics' own end-of-training validation plots for the promoted run (`runs/detect/retrain_20260708_184220/`, gitignored — copied here for reference):
+
+<table>
+<tr>
+<td><img src="docs/img/retrain-2026-07-08/confusion_matrix_normalized.png" alt="Normalized confusion matrix, 83 classes" width="420"></td>
+<td><img src="docs/img/retrain-2026-07-08/results.png" alt="Training curves: box/cls/dfl loss, precision, recall, mAP50, mAP50-95 over 30 epochs" width="420"></td>
+</tr>
+<tr>
+<td><img src="docs/img/retrain-2026-07-08/BoxF1_curve.png" alt="F1 score vs. confidence threshold" width="420"></td>
+<td><img src="docs/img/retrain-2026-07-08/BoxP_curve.png" alt="Precision vs. confidence threshold" width="420"></td>
+</tr>
+</table>
+
+The confusion matrix's diagonal dominance (near-white off-diagonal at this scale) reflects the 0.957 aggregate mAP50 — visible off-diagonal mass clusters within coarse categories (e.g. juice variants, yoghurt variants) rather than across them, consistent with the earlier Day 3 review's expectation for this fine-grained catalog. The same plot set exists for the non-promoted stress-augmented run under `runs/detect/retrain_20260708_184220_stress/` locally (not committed, since only one candidate's plots are kept in the repo) for anyone who wants to compare directly.
 
 ## 🏗️ Project Architecture
 The project is modularized into `src/` (core logic) and root-level `main_dayN_*.py` scripts (orchestration) — each day's script is a thin entrypoint that imports its logic from `src/`.
