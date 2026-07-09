@@ -10,6 +10,8 @@ export interface CartLineRow extends CartLine {
 
 const MAX_DEBUG_LOG = 20
 
+export type BackendStatus = 'connected' | 'disconnected'
+
 interface SmartCartState {
   catalog: CatalogItem[]
   detections: Detection[]
@@ -21,8 +23,10 @@ interface SmartCartState {
   debugMode: boolean
   debugLog: MatchExplanation[]
   isCheckedOut: boolean
+  backendStatus: BackendStatus
 
   loadCatalog: () => Promise<void>
+  checkBackendHealth: (signal?: AbortSignal) => Promise<void>
   setFeedImage: (src: string | null) => void
   runDetection: (files: File[]) => Promise<void>
   toggleLine: (lineId: string) => void
@@ -44,10 +48,20 @@ export const useSmartCart = create<SmartCartState>((set, get) => ({
   debugMode: false,
   debugLog: [],
   isCheckedOut: false,
+  backendStatus: 'connected',
 
   loadCatalog: async () => {
     const catalog = await api.getCatalog()
     set({ catalog })
+  },
+
+  checkBackendHealth: async (signal) => {
+    try {
+      await api.getHealth(signal)
+      set({ backendStatus: 'connected' })
+    } catch {
+      set({ backendStatus: 'disconnected' })
+    }
   },
 
   setFeedImage: (src) => set({ feedImage: src }),

@@ -3,10 +3,12 @@ import { CameraFeed } from '@/components/CameraFeed'
 import { CartSidebar } from '@/components/CartSidebar'
 import { HeaderBar } from '@/components/HeaderBar'
 import { SectionHeader } from '@/components/SectionHeader'
+import { useBackendHealth } from '@/hooks/useBackendHealth'
 import { useSmartCart } from '@/hooks/useSmartCart'
 
 function App() {
   const loadCatalog = useSmartCart((state) => state.loadCatalog)
+  useBackendHealth()
 
   useEffect(() => {
     void loadCatalog()

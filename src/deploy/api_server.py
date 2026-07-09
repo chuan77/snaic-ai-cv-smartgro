@@ -14,8 +14,9 @@ from fastapi.staticfiles import StaticFiles
 from PIL import Image
 
 from src.deploy.active_learning_capture import get_capture_dir, maybe_capture
-from src.deploy.detector import get_detector
+from src.deploy.detector import get_detector, get_variant_resolver
 from src.deploy.label_studio_backend import router as ls_router
+from src.models.variant_resolver import VariantResolver
 from src.models.yolo_detector import YoloDetector
 
 # Loaded here, not in main_api_server.py: uvicorn's --reload worker imports this
@@ -57,7 +58,20 @@ app.add_middleware(
 )
 app.include_router(ls_router, prefix="/ls")
 get_capture_dir().mkdir(parents=True, exist_ok=True)
-app.mount("/staging", StaticFiles(directory=str(get_capture_dir())), name="staging")
+# Wide-open CORS on this mount specifically: Label Studio loads $image URLs into a canvas
+# from whatever origin it's served on, which may not match SMARTCART_CORS_ORIGINS (that
+# list is for the checkout frontend). Nested here, it only affects /staging — /predict and
+# /catalog still enforce the app-level CORSMiddleware's restricted origin list above.
+app.mount(
+    "/staging",
+    CORSMiddleware(StaticFiles(directory=str(get_capture_dir())), allow_origins=["*"], allow_methods=["GET"]),
+    name="staging",
+)
+
+
+@app.get("/health")
+def health_endpoint() -> dict[str, str]:
+    return {"status": "ok"}
 
 
 def leaf_display_name(product_name: str) -> str:
@@ -110,10 +124,25 @@ def build_detections(detections: list[dict], img_width: int, img_height: int) ->
     ]
 
 
+def resolve_variants(detections: list[dict], image: Image.Image, resolver: VariantResolver) -> list[dict]:
+    """Refines each coarse detection's class_name to its specific catalog variant, by cropping
+    the detection's box out of `image` and matching it against the DINOv2 gallery."""
+    resolved = []
+    for d in detections:
+        crop = image.crop(tuple(d["bbox"]))
+        resolved.append({**d, "class_name": resolver.resolve(d["class_name"], crop)})
+    return resolved
+
+
 @app.post("/predict")
-def predict_endpoint(file: UploadFile, detector: YoloDetector = Depends(get_detector)) -> list[dict]:
+def predict_endpoint(
+    file: UploadFile,
+    detector: YoloDetector = Depends(get_detector),
+    resolver: VariantResolver = Depends(get_variant_resolver),
+) -> list[dict]:
     image = Image.open(file.file).convert("RGB")
     frame_rgb = np.array(image)
     detections = detector.detect(frame_rgb)
+    detections = resolve_variants(detections, image, resolver)
     maybe_capture(image, detections)
     return build_detections(detections, image.width, image.height)

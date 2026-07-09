@@ -8,7 +8,7 @@ import httpx
 
 from src.deploy.label_studio_backend import (
     build_ls_prediction,
-    get_label_studio_api_key,
+    get_label_studio_auth_headers,
     get_label_studio_url,
     get_ls_data_key,
     get_ls_from_name,
@@ -23,6 +23,10 @@ def get_staging_public_url() -> str:
 
 def get_ls_project_id() -> str:
     return os.environ.get("SMARTCART_LS_PROJECT_ID", "")
+
+
+def get_push_min_detections() -> int:
+    return int(os.environ.get("SMARTCART_PUSH_MIN_DETECTIONS", "0"))
 
 
 def load_capture(sidecar_path: Path) -> dict:
@@ -41,24 +45,25 @@ def build_import_task(capture: dict, image_url: str, from_name: str, to_name: st
 
 
 def push_tasks(tasks: list[dict], project_id: str) -> httpx.Response:
-    api_key = get_label_studio_api_key()
-    headers = {"Authorization": f"Token {api_key}"} if api_key else {}
     return httpx.post(
         f"{get_label_studio_url()}/api/projects/{project_id}/import",
         json=tasks,
-        headers=headers,
+        headers=get_label_studio_auth_headers(),
         timeout=30.0,
     )
 
 
-def mark_pushed(sidecar_path: Path, image_path: Path) -> None:
+def mark_pushed(sidecar_path: Path) -> None:
+    """Moves only the sidecar JSON into pushed/, for our own idempotency bookkeeping.
+    The image itself must stay exactly where it was: the task just created in Label
+    Studio was handed a URL pointing at its current location, and that reference is
+    permanent from Label Studio's side — relocating the file would 404 it forever."""
     pushed_dir = sidecar_path.parent / "pushed"
     pushed_dir.mkdir(parents=True, exist_ok=True)
     sidecar_path.rename(pushed_dir / sidecar_path.name)
-    image_path.rename(pushed_dir / image_path.name)
 
 
-def push_staging_dir(staging_dir: Path, project_id: str) -> int:
+def push_staging_dir(staging_dir: Path, project_id: str, min_detections: int = 0) -> int:
     from_name = get_ls_from_name()
     to_name = get_ls_to_name()
     model_version = get_model_version()
@@ -67,13 +72,14 @@ def push_staging_dir(staging_dir: Path, project_id: str) -> int:
     count = 0
     for sidecar_path in sidecar_paths:
         capture = load_capture(sidecar_path)
-        image_path = staging_dir / capture["image_file"]
+        if capture["num_detections"] < min_detections:
+            continue
         image_url = build_image_url(capture["image_file"])
         task = build_import_task(capture, image_url, from_name, to_name, model_version)
 
         response = push_tasks([task], project_id)
         if 200 <= response.status_code < 300:
-            mark_pushed(sidecar_path, image_path)
+            mark_pushed(sidecar_path)
             count += 1
 
     return count

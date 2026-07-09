@@ -14,11 +14,19 @@ from src.deploy.api_server import (
     get_cors_origins,
     get_detector,
     get_server_config,
+    get_variant_resolver,
     leaf_display_name,
     load_catalog,
     parse_bool_env,
+    resolve_variants,
     xyxy_to_fractional_xywh,
 )
+
+
+def _identity_resolver():
+    resolver = MagicMock()
+    resolver.resolve.side_effect = lambda class_name, crop: class_name
+    return resolver
 
 
 @pytest.mark.parametrize("product_name,expected", [
@@ -113,6 +121,15 @@ def test_load_catalog_reads_csv_and_derives_display_name(tmp_path):
     ]
 
 
+def test_health_endpoint_returns_ok_status():
+    client = TestClient(app)
+
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
 def test_catalog_endpoint_returns_the_overridden_catalog():
     app.dependency_overrides[get_catalog] = lambda: [
         {"sku": "Fruit/Apple/Royal-Gala", "name": "Royal Gala", "priceUsd": 1.75}
@@ -142,12 +159,33 @@ def test_build_detections_returns_empty_list_for_no_detections():
     assert build_detections([], img_width=200, img_height=400) == []
 
 
+def test_resolve_variants_maps_each_detection_through_the_resolver():
+    image = Image.new("RGB", (100, 100))
+    detections = [{"class_name": "Snacks/Chocolate-Bar", "confidence": 0.9, "bbox": [10.0, 10.0, 50.0, 50.0]}]
+    resolver = MagicMock()
+    resolver.resolve.return_value = "Snacks/Chocolate-Bar/Cadbury-RoastAlmond"
+
+    result = resolve_variants(detections, image, resolver)
+
+    assert result == [
+        {"class_name": "Snacks/Chocolate-Bar/Cadbury-RoastAlmond", "confidence": 0.9, "bbox": [10.0, 10.0, 50.0, 50.0]}
+    ]
+    called_class_name, called_crop = resolver.resolve.call_args.args
+    assert called_class_name == "Snacks/Chocolate-Bar"
+    assert called_crop.size == (40, 40)
+
+
+def test_resolve_variants_returns_empty_list_for_no_detections():
+    assert resolve_variants([], Image.new("RGB", (10, 10)), MagicMock()) == []
+
+
 def test_predict_endpoint_returns_converted_detections_from_mocked_detector():
     mock_detector = MagicMock()
     mock_detector.detect.return_value = [
         {"class_name": "Snacks/Chocolate-Bar", "confidence": 0.9, "bbox": [50.0, 100.0, 150.0, 200.0]}
     ]
     app.dependency_overrides[get_detector] = lambda: mock_detector
+    app.dependency_overrides[get_variant_resolver] = _identity_resolver
     client = TestClient(app)
 
     image_bytes = io.BytesIO()
@@ -164,10 +202,33 @@ def test_predict_endpoint_returns_converted_detections_from_mocked_detector():
     app.dependency_overrides.clear()
 
 
+def test_predict_endpoint_uses_resolver_to_refine_detection_label():
+    mock_detector = MagicMock()
+    mock_detector.detect.return_value = [
+        {"class_name": "Snacks/Chocolate-Bar", "confidence": 0.9, "bbox": [50.0, 100.0, 150.0, 200.0]}
+    ]
+    mock_resolver = MagicMock()
+    mock_resolver.resolve.return_value = "Snacks/Chocolate-Bar/Cadbury-RoastAlmond"
+    app.dependency_overrides[get_detector] = lambda: mock_detector
+    app.dependency_overrides[get_variant_resolver] = lambda: mock_resolver
+    client = TestClient(app)
+
+    image_bytes = io.BytesIO()
+    Image.new("RGB", (200, 400)).save(image_bytes, format="JPEG")
+    image_bytes.seek(0)
+
+    response = client.post("/predict", files={"file": ("test.jpg", image_bytes, "image/jpeg")})
+
+    assert response.status_code == 200
+    assert response.json()[0]["label"] == "Snacks/Chocolate-Bar/Cadbury-RoastAlmond"
+    app.dependency_overrides.clear()
+
+
 def test_predict_endpoint_returns_empty_list_when_no_detections():
     mock_detector = MagicMock()
     mock_detector.detect.return_value = []
     app.dependency_overrides[get_detector] = lambda: mock_detector
+    app.dependency_overrides[get_variant_resolver] = _identity_resolver
     client = TestClient(app)
 
     image_bytes = io.BytesIO()
@@ -186,6 +247,7 @@ def test_predict_endpoint_triggers_capture_hook(monkeypatch):
     detections = [{"class_name": "Vegetables/Carrots", "confidence": 0.9, "bbox": [0.0, 0.0, 10.0, 10.0]}]
     mock_detector.detect.return_value = detections
     app.dependency_overrides[get_detector] = lambda: mock_detector
+    app.dependency_overrides[get_variant_resolver] = _identity_resolver
     captured = {}
     monkeypatch.setattr(
         "src.deploy.api_server.maybe_capture", lambda image, dets: captured.update(image=image, detections=dets)
@@ -209,6 +271,7 @@ def test_predict_endpoint_unaffected_when_capture_raises(monkeypatch):
         {"class_name": "Snacks/Chocolate-Bar", "confidence": 0.9, "bbox": [50.0, 100.0, 150.0, 200.0]}
     ]
     app.dependency_overrides[get_detector] = lambda: mock_detector
+    app.dependency_overrides[get_variant_resolver] = _identity_resolver
 
     def raise_error(*args, **kwargs):
         raise RuntimeError("capture blew up")

@@ -7,17 +7,14 @@ from pathlib import Path
 import httpx
 
 from src.data.annotation_import import import_label_studio_export
-from src.deploy.label_studio_backend import get_label_studio_api_key, get_label_studio_url
+from src.deploy.label_studio_backend import get_label_studio_auth_headers, get_label_studio_url
 
 
 def export_project(project_id: str) -> bytes:
-    api_key = get_label_studio_api_key()
-    headers = {"Authorization": f"Token {api_key}"} if api_key else {}
-
     response = httpx.get(
         f"{get_label_studio_url()}/api/projects/{project_id}/export",
         params={"exportType": "YOLO"},
-        headers=headers,
+        headers=get_label_studio_auth_headers(),
         timeout=60.0,
     )
     response.raise_for_status()

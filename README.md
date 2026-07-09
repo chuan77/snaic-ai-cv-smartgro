@@ -61,7 +61,7 @@ Besides the Gradio dashboard produced by Day 5 of the pipeline above, the repo a
    ```bash
    uv run python main_api_server.py
    ```
-   Serves `GET /catalog` and `POST /predict` on `http://localhost:8000` by default.
+   Serves `GET /catalog`, `POST /predict`, and `GET /health` on `http://localhost:8000` by default.
 3. **Configure the frontend:**
    ```bash
    cd frontend
@@ -76,6 +76,8 @@ Besides the Gradio dashboard produced by Day 5 of the pipeline above, the repo a
    Opens on `http://localhost:5173` by default.
 
 Both `.env` files are gitignored — only the `.env.example` templates are committed.
+
+The header's status badge (`HeaderBar.tsx`) polls `GET /health` every 5s (`frontend/src/hooks/useBackendHealth.ts`) and switches between green "Model Ready" and red "Disconnected" based on whether the backend responds — no manual refresh needed to notice the API server going down or coming back up.
 
 ### 🧾 Checkout & Receipt Flow
 
@@ -129,6 +131,36 @@ The FastAPI backend also exposes a Label Studio ML Backend under `/ls`, plus an 
 
 ```bash
 SMARTCART_LS_PROJECT_ID=<id> uv run python retrain_from_label_studio.py
+```
+
+```mermaid
+flowchart TD
+    subgraph serve["Live serving"]
+        PRED["POST /predict<br/>src/deploy/api_server.py"]
+        WEIGHTS[("SMARTCART_WEIGHTS_PATH<br/>currently-served best.pt")]
+        WEIGHTS --> PRED
+    end
+
+    PRED --> CAP{"any detection<br/>below conf threshold?<br/>active_learning_capture.py"}
+    CAP -- "no (confident)" --> DONE(["response returned,<br/>nothing staged"])
+    CAP -- "yes" --> STAGE[("SMARTCART_CAPTURE_DIR<br/>staged frame + sidecar json")]
+
+    STAGE --> PUSH["push_captures_to_label_studio.py<br/>label_studio_push.py"]
+    PUSH --> LS[("Label Studio project<br/>pre-annotated tasks")]
+
+    LS -- "human review /<br/>correction in Label Studio" --> LS
+
+    LS --> PULL["retrain_from_label_studio.py<br/>label_studio_export_pull.py: export API"]
+    PULL --> IMPORT["annotation_import.py<br/>route corrected crops into<br/>GroceryStoreDataset leaf classes"]
+
+    IMPORT --> REBUILD["ModelTrainingPipeline.rebuild_catalog()<br/>Day 1 logic: DINOv2 + catalog"]
+    REBUILD --> RESYNTH["ModelTrainingPipeline.resynthesize_and_train()<br/>Day 2 logic: synthesize scenes + train YOLO11"]
+    RESYNTH --> CANDIDATE[("runs/detect/retrain_&lt;timestamp&gt;/<br/>weights/best.pt")]
+    CANDIDATE --> AUDIT{"CheckoutModelAuditor<br/>mAP50 ≥ SMARTCART_RETRAIN_MIN_MAP50?"}
+
+    AUDIT -- "FAILED" --> REJECT(["reported, not promoted —<br/>production weights untouched"])
+    AUDIT -- "PASSED" --> MANUAL["manual review<br/>(e.g. per-class stress-augment check,<br/>see example below)"]
+    MANUAL -- "operator updates<br/>SMARTCART_WEIGHTS_PATH<br/>+ restarts API" --> WEIGHTS
 ```
 
 - **Promotion is always manual.** The retrained candidate lands in a fresh `runs/detect/retrain_<timestamp>/weights/best.pt` — the currently-served `runs/detect/train/` and `SMARTCART_WEIGHTS_PATH` are never touched automatically, regardless of whether the audit passes. On a PASSED report, update `SMARTCART_WEIGHTS_PATH` in `.env` to the new path and restart the API yourself.

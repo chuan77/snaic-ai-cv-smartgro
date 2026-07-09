@@ -4,10 +4,23 @@ from unittest.mock import MagicMock
 from src.deploy.label_studio_push import (
     build_image_url,
     build_import_task,
+    get_push_min_detections,
     mark_pushed,
     push_staging_dir,
     push_tasks,
 )
+
+
+def test_get_push_min_detections_defaults_to_zero(monkeypatch):
+    monkeypatch.delenv("SMARTCART_PUSH_MIN_DETECTIONS", raising=False)
+
+    assert get_push_min_detections() == 0
+
+
+def test_get_push_min_detections_reads_from_environment(monkeypatch):
+    monkeypatch.setenv("SMARTCART_PUSH_MIN_DETECTIONS", "1")
+
+    assert get_push_min_detections() == 1
 
 
 def _write_capture(staging_dir, name, detections, width=64, height=32):
@@ -49,11 +62,20 @@ def test_build_import_task_attaches_predictions(monkeypatch):
 
 
 def test_push_tasks_posts_to_import_endpoint_with_auth(monkeypatch):
+    # label_studio_push and label_studio_backend both do `import httpx`, so they share the
+    # same module object — patching httpx.post once affects both call sites, and it must
+    # branch on URL to serve the token-refresh call and the import call differently.
     monkeypatch.setenv("LABEL_STUDIO_URL", "http://ls-host:8080")
-    monkeypatch.setenv("LABEL_STUDIO_API_KEY", "secret-token")
+    monkeypatch.setenv("LABEL_STUDIO_API_KEY", "secret-refresh-token")
     captured = {}
 
     def fake_post(url, json=None, headers=None, timeout=None):
+        if url.endswith("/api/token/refresh"):
+            response = MagicMock()
+            response.raise_for_status = MagicMock()
+            response.json.return_value = {"access": "fresh-access-token"}
+            return response
+
         captured["url"] = url
         captured["json"] = json
         captured["headers"] = headers
@@ -68,20 +90,20 @@ def test_push_tasks_posts_to_import_endpoint_with_auth(monkeypatch):
 
     assert captured["url"] == "http://ls-host:8080/api/projects/7/import"
     assert captured["json"] == tasks
-    assert captured["headers"] == {"Authorization": "Token secret-token"}
+    assert captured["headers"] == {"Authorization": "Bearer fresh-access-token"}
     assert response.status_code == 201
 
 
-def test_mark_pushed_moves_files_to_pushed_subdir(tmp_path):
+def test_mark_pushed_moves_sidecar_but_leaves_image_in_place(tmp_path):
     sidecar_path = _write_capture(tmp_path, "abc123", [])
     image_path = tmp_path / "abc123.jpg"
 
-    mark_pushed(sidecar_path, image_path)
+    mark_pushed(sidecar_path)
 
     assert not sidecar_path.exists()
-    assert not image_path.exists()
+    assert image_path.exists()
     assert (tmp_path / "pushed" / "abc123.json").exists()
-    assert (tmp_path / "pushed" / "abc123.jpg").exists()
+    assert not (tmp_path / "pushed" / "abc123.jpg").exists()
 
 
 def test_push_staging_dir_skips_pushed_subdir_and_returns_count(tmp_path, monkeypatch):
@@ -105,3 +127,22 @@ def test_push_staging_dir_skips_pushed_subdir_and_returns_count(tmp_path, monkey
     assert (tmp_path / "pushed" / "one.json").exists()
     assert (tmp_path / "pushed" / "two.json").exists()
     assert (tmp_path / "pushed" / "already.json").exists()
+
+
+def test_push_staging_dir_skips_captures_below_min_detections(tmp_path, monkeypatch):
+    monkeypatch.setenv("SMARTCART_STAGING_PUBLIC_URL", "http://example.com/staging")
+    _write_capture(tmp_path, "has_detection", [{"class_name": "Vegetables/Carrots", "confidence": 0.2, "bbox": [0, 0, 1, 1]}])
+    _write_capture(tmp_path, "empty", [])
+
+    monkeypatch.setattr(
+        "src.deploy.label_studio_push.push_tasks",
+        lambda tasks, project_id: MagicMock(status_code=201),
+    )
+
+    count = push_staging_dir(tmp_path, project_id="7", min_detections=1)
+
+    assert count == 1
+    assert not (tmp_path / "has_detection.json").exists()
+    assert (tmp_path / "pushed" / "has_detection.json").exists()
+    assert (tmp_path / "empty.json").exists()
+    assert not (tmp_path / "pushed" / "empty.json").exists()

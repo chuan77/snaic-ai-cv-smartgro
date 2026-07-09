@@ -8,6 +8,7 @@ from src.data.annotation_import import (
     crop_with_padding,
     load_class_names,
     classify_category,
+    variant_subpath,
     import_label_studio_export,
 )
 
@@ -62,10 +63,32 @@ def test_classify_category_matches_by_keyword(class_name, expected_key):
 
     result = classify_category(class_name, category_keywords)
 
-    assert result == category_keywords.get(expected_key)
+    expected = (expected_key, category_keywords[expected_key]) if expected_key else None
+    assert result == expected
 
 
-def test_import_label_studio_export_writes_cropped_images_and_returns_paths(tmp_path):
+def test_classify_category_prefers_the_longest_matching_keyword():
+    category_keywords = {
+        "Ready-To-Eat/Instant-Noodles/Myojo/Chicken": Path("/chicken"),
+        "Ready-To-Eat/Instant-Noodles/Myojo/ChickenAbalone": Path("/chicken-abalone"),
+    }
+
+    result = classify_category("Ready-To-Eat/Instant-Noodles/Myojo/ChickenAbalone", category_keywords)
+
+    assert result == ("Ready-To-Eat/Instant-Noodles/Myojo/ChickenAbalone", Path("/chicken-abalone"))
+
+
+@pytest.mark.parametrize("class_name,keyword,expected", [
+    ("Ready-To-Eat/Instant-Noodles/Nissin-328-KATONG-LAKSA", "Instant-Noodles", Path("Nissin-328-KATONG-LAKSA")),
+    ("Instant-Noodles/Nissin/328-KATONG-LAKSA", "Instant-Noodles", Path("Nissin/328-KATONG-LAKSA")),
+    ("Snacks/Chocolate-Bar/Cadbury-RoastAlmond", "Chocolate", Path("Cadbury-RoastAlmond")),
+    ("Snacks/Chocolate", "Chocolate", Path("Chocolate")),
+])
+def test_variant_subpath_preserves_segments_after_matched_keyword(class_name, keyword, expected):
+    assert variant_subpath(class_name, keyword) == expected
+
+
+def test_import_label_studio_export_nests_crops_under_the_variant_subpath(tmp_path):
     export_dir = tmp_path / "export"
     images_dir = export_dir / "images"
     labels_dir = export_dir / "labels"
@@ -78,8 +101,9 @@ def test_import_label_studio_export_writes_cropped_images_and_returns_paths(tmp_
 
     written = import_label_studio_export(export_dir, {"Instant-Noodles": dest_dir})
 
-    assert written == [dest_dir / "sample_001_0.jpg"]
-    with Image.open(dest_dir / "sample_001_0.jpg") as cropped:
+    expected_path = dest_dir / "Maggi" / "Curry" / "sample_001_0.jpg"
+    assert written == [expected_path]
+    with Image.open(expected_path) as cropped:
         assert cropped.size == (44, 44)
 
 
@@ -100,8 +124,8 @@ def test_import_label_studio_export_crops_every_box_in_a_multi_item_label_file(t
     written = import_label_studio_export(export_dir, dest_dirs)
 
     assert written == [
-        dest_dirs["Instant-Noodles"] / "flatlay_001_0.jpg",
-        dest_dirs["Chocolate"] / "flatlay_001_1.jpg",
+        dest_dirs["Instant-Noodles"] / "Maggi" / "Curry" / "flatlay_001_0.jpg",
+        dest_dirs["Chocolate"] / "Cadbury" / "Dairy-Milk" / "flatlay_001_1.jpg",
     ]
 
 

@@ -94,16 +94,28 @@ def build_ls_prediction(
     return {"model_version": model_version, "score": mean_score, "result": regions}
 
 
+def get_label_studio_auth_headers() -> dict[str, str]:
+    """Label Studio's personal access tokens (as issued by its 'New Auth Token' dialog)
+    are refresh tokens, not usable directly — each call must exchange one for a
+    short-lived access token via /api/token/refresh first."""
+    refresh_token = get_label_studio_api_key()
+    if not refresh_token:
+        return {}
+
+    response = httpx.post(
+        f"{get_label_studio_url()}/api/token/refresh", json={"refresh": refresh_token}, timeout=10.0
+    )
+    response.raise_for_status()
+    return {"Authorization": f"Bearer {response.json()['access']}"}
+
+
 def fetch_task_image(data_value: str) -> Image.Image:
     if data_value.startswith("http://") or data_value.startswith("https://"):
         url = data_value
     else:
         url = f"{get_label_studio_url()}{data_value if data_value.startswith('/') else '/' + data_value}"
 
-    api_key = get_label_studio_api_key()
-    headers = {"Authorization": f"Token {api_key}"} if api_key else {}
-
-    response = httpx.get(url, headers=headers, timeout=10.0)
+    response = httpx.get(url, headers=get_label_studio_auth_headers(), timeout=10.0)
     response.raise_for_status()
     return Image.open(io.BytesIO(response.content)).convert("RGB")
 

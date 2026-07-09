@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from src.data.annotation_import import classify_category
 from src.data.gallery import GroceryDatasetIndexer
 from src.data.label_studio_export_pull import (
     build_category_keywords,
@@ -25,9 +26,17 @@ def _make_zip_bytes(files: dict[str, bytes]) -> bytes:
 
 def test_export_project_gets_yolo_endpoint_with_auth(monkeypatch):
     monkeypatch.setenv("LABEL_STUDIO_URL", "http://ls-host:8080")
-    monkeypatch.setenv("LABEL_STUDIO_API_KEY", "secret-token")
+    monkeypatch.setenv("LABEL_STUDIO_API_KEY", "secret-refresh-token")
     captured = {}
     zip_bytes = _make_zip_bytes({"classes.txt": b"a\nb\n"})
+
+    def fake_token_post(url, json=None, timeout=None):
+        response = MagicMock()
+        response.raise_for_status = MagicMock()
+        response.json.return_value = {"access": "fresh-access-token"}
+        return response
+
+    monkeypatch.setattr("src.deploy.label_studio_backend.httpx.post", fake_token_post)
 
     def fake_get(url, params=None, headers=None, timeout=None):
         captured["url"] = url
@@ -45,7 +54,7 @@ def test_export_project_gets_yolo_endpoint_with_auth(monkeypatch):
 
     assert captured["url"] == "http://ls-host:8080/api/projects/7/export"
     assert captured["params"] == {"exportType": "YOLO"}
-    assert captured["headers"] == {"Authorization": "Token secret-token"}
+    assert captured["headers"] == {"Authorization": "Bearer fresh-access-token"}
     assert result == zip_bytes
 
 
@@ -72,6 +81,8 @@ def test_export_project_no_auth_header_when_key_unset(monkeypatch):
 def test_export_project_raises_on_non_2xx(monkeypatch):
     import httpx
 
+    monkeypatch.setenv("LABEL_STUDIO_API_KEY", "")
+
     def fake_get(url, params=None, headers=None, timeout=None):
         response = MagicMock()
         response.status_code = 403
@@ -89,6 +100,8 @@ def test_export_project_raises_on_non_2xx(monkeypatch):
 
 
 def test_export_project_raises_on_non_zip_body(monkeypatch):
+    monkeypatch.setenv("LABEL_STUDIO_API_KEY", "")
+
     def fake_get(url, params=None, headers=None, timeout=None):
         response = MagicMock()
         response.status_code = 200
@@ -137,18 +150,19 @@ def test_build_category_keywords_maps_full_paths_to_dataset_dirs():
     }
 
 
-def test_build_category_keywords_collision_free_over_83_classes():
+def test_build_category_keywords_every_real_class_routes_to_itself():
+    """Some real class names are substrings of others (e.g. 'Myojo/Chicken' vs.
+    'Myojo/ChickenAbalone') now that fine-grained variants exist. classify_category
+    resolves this by preferring the longest (most specific) match, so exact-match
+    routing stays correct even though the keyword set itself isn't substring-free."""
     dataset_root = Path("./dataset/GroceryStoreDataset/dataset/train")
     if not dataset_root.exists():
         pytest.skip("GroceryStoreDataset not cloned locally")
     class_map = GroceryDatasetIndexer(dataset_root).build_class_map()
+    category_keywords = build_category_keywords(class_map, dataset_root)
 
-    keywords = list(build_category_keywords(class_map, dataset_root).keys())
-
-    for i, a in enumerate(keywords):
-        for j, b in enumerate(keywords):
-            if i != j:
-                assert a not in b, f"{a!r} is a substring of {b!r} — routing would be ambiguous"
+    for class_name in class_map:
+        assert classify_category(class_name, category_keywords) == (class_name, dataset_root / class_name)
 
 
 def test_pull_and_import_orchestrates(monkeypatch, tmp_path):

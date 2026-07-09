@@ -1,7 +1,11 @@
 import { motion } from 'framer-motion'
 import { ScanLine } from 'lucide-react'
+import { useSmartCart } from '@/hooks/useSmartCart'
+import { cn } from '@/lib/utils'
 
 export function HeaderBar() {
+  const isConnected = useSmartCart((state) => state.backendStatus === 'connected')
+
   return (
     <header>
       <div className="flex flex-wrap items-center justify-between gap-4">
@@ -19,13 +23,25 @@ export function HeaderBar() {
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full border border-accent-green/30 bg-accent-green/[0.08] px-3 py-1.5">
+        <div
+          className={cn(
+            'flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full border px-3 py-1.5',
+            isConnected ? 'border-accent-green/30 bg-accent-green/[0.08]' : 'border-accent-red/30 bg-accent-red/[0.08]',
+          )}
+        >
           <motion.span
-            className="h-2 w-2 shrink-0 rounded-full bg-accent-green"
+            className={cn('h-2 w-2 shrink-0 rounded-full', isConnected ? 'bg-accent-green' : 'bg-accent-red')}
             animate={{ opacity: [1, 0.35, 1] }}
             transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
           />
-          <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-accent-green">Model Ready</span>
+          <span
+            className={cn(
+              'font-mono text-[11px] uppercase tracking-[0.16em]',
+              isConnected ? 'text-accent-green' : 'text-accent-red',
+            )}
+          >
+            {isConnected ? 'Model Ready' : 'Disconnected'}
+          </span>
         </div>
       </div>
       <div className="mt-6 h-px bg-white/10" />

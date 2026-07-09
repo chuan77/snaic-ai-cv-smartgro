@@ -24,7 +24,7 @@ export function ProductCard({ line, interactive = true }: ProductCardProps) {
       <span className={cn('h-2.5 w-2.5 shrink-0 rounded-full', line.active ? accent.dot : 'bg-white/20')} />
       <div className={cn('min-w-0 flex-1 transition-opacity', !line.active && 'opacity-55 line-through')}>
         <p className="truncate font-sans text-sm text-text-hi">{line.name}</p>
-        <p className="truncate font-mono text-[11px] text-text-lo">
+        <p className="line-clamp-2 whitespace-normal break-words font-mono text-[10px] leading-tight text-text-lo">
           {line.sku} · {(line.confidence * 100).toFixed(0)}%
         </p>
       </div>

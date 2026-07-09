@@ -3,6 +3,8 @@ without touching the weights the checkout API currently serves. Promotion is man
 update SMARTCART_WEIGHTS_PATH and restart the API once a candidate passes the audit gate."""
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 from src.data.gallery import GroceryDatasetIndexer
 from src.data.label_studio_export_pull import pull_and_import_from_label_studio
 from src.deploy.label_studio_push import get_ls_project_id
@@ -11,6 +13,7 @@ from src.pipeline.training_pipeline import ModelTrainingPipeline
 DATASET_ROOT = Path("./dataset/GroceryStoreDataset/dataset/train")
 
 if __name__ == "__main__":
+    load_dotenv()
     project_id = get_ls_project_id()
     if not project_id:
         raise SystemExit("SMARTCART_LS_PROJECT_ID must be set to pull corrections from Label Studio.")

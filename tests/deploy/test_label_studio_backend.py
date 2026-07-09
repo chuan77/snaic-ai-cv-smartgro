@@ -10,6 +10,7 @@ from src.deploy.label_studio_backend import (
     build_ls_prediction,
     detections_to_ls_regions,
     fetch_task_image,
+    get_label_studio_auth_headers,
     xyxy_to_percentage_xywh,
 )
 
@@ -79,9 +80,48 @@ def test_build_ls_prediction_zero_detections_score_zero():
     assert prediction["result"] == []
 
 
+def _mock_token_refresh(monkeypatch, access_token="fresh-access-token"):
+    captured = {}
+
+    def fake_post(url, json=None, timeout=None):
+        captured["url"] = url
+        captured["json"] = json
+        response = MagicMock()
+        response.raise_for_status = MagicMock()
+        response.json.return_value = {"access": access_token}
+        return response
+
+    monkeypatch.setattr("src.deploy.label_studio_backend.httpx.post", fake_post)
+    return captured
+
+
+def test_get_label_studio_auth_headers_exchanges_refresh_token(monkeypatch):
+    monkeypatch.setenv("LABEL_STUDIO_URL", "http://ls-host:8080")
+    monkeypatch.setenv("LABEL_STUDIO_API_KEY", "secret-refresh-token")
+    captured = _mock_token_refresh(monkeypatch)
+
+    headers = get_label_studio_auth_headers()
+
+    assert captured["url"] == "http://ls-host:8080/api/token/refresh"
+    assert captured["json"] == {"refresh": "secret-refresh-token"}
+    assert headers == {"Authorization": "Bearer fresh-access-token"}
+
+
+def test_get_label_studio_auth_headers_empty_when_no_key(monkeypatch):
+    monkeypatch.setenv("LABEL_STUDIO_API_KEY", "")
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("should not call Label Studio when no key is configured")
+
+    monkeypatch.setattr("src.deploy.label_studio_backend.httpx.post", fail_if_called)
+
+    assert get_label_studio_auth_headers() == {}
+
+
 def test_fetch_task_image_prefixes_relative_url_and_sends_auth_header(monkeypatch):
     monkeypatch.setenv("LABEL_STUDIO_URL", "http://ls-host:8080")
-    monkeypatch.setenv("LABEL_STUDIO_API_KEY", "secret-token")
+    monkeypatch.setenv("LABEL_STUDIO_API_KEY", "secret-refresh-token")
+    _mock_token_refresh(monkeypatch)
     captured = {}
 
     def fake_get(url, headers=None, timeout=None):
@@ -97,7 +137,7 @@ def test_fetch_task_image_prefixes_relative_url_and_sends_auth_header(monkeypatc
     image = fetch_task_image("/data/upload/1/image.jpg")
 
     assert captured["url"] == "http://ls-host:8080/data/upload/1/image.jpg"
-    assert captured["headers"] == {"Authorization": "Token secret-token"}
+    assert captured["headers"] == {"Authorization": "Bearer fresh-access-token"}
     assert image.size == (64, 32)
 
 

@@ -3,6 +3,7 @@ import type { CatalogItem, Detection } from '@/types'
 export interface ApiClient {
   predict(input: File): Promise<Detection[]>
   getCatalog(): Promise<CatalogItem[]>
+  getHealth(signal?: AbortSignal): Promise<{ status: string }>
 }
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? 'http://localhost:8000'
@@ -20,5 +21,11 @@ export const api: ApiClient = {
     const response = await fetch(`${API_BASE_URL}/catalog`)
     if (!response.ok) throw new Error(`getCatalog failed: ${response.status}`)
     return response.json() as Promise<CatalogItem[]>
+  },
+
+  async getHealth(signal) {
+    const response = await fetch(`${API_BASE_URL}/health`, { signal })
+    if (!response.ok) throw new Error(`getHealth failed: ${response.status}`)
+    return response.json() as Promise<{ status: string }>
   },
 }
