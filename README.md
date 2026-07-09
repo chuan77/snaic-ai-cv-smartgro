@@ -169,49 +169,20 @@ flowchart TD
 - **Promotion is always manual.** The retrained candidate lands in a fresh `runs/detect/retrain_<timestamp>/weights/best.pt` — the currently-served `runs/detect/train/` and `SMARTCART_WEIGHTS_PATH` are never touched automatically, regardless of whether the audit passes. On a PASSED report, update `SMARTCART_WEIGHTS_PATH` in `.env` to the new path and restart the API yourself.
 - **Known limitation:** `retrain_from_label_studio.py`'s loop never calls the Day 4 stress augmentor — it's a separate, manual step (see the example below). `main_day4_optimize.py` itself is still hardcoded to target `Snacks/Chocolate-Bar`, which is no longer reliably the weakest class after new Label Studio imports change the class distribution; identifying the *current* weakest class means reading each retrain's own per-class audit output and passing that class's id to `EnvironmentalStressAugmentor.optimize_target_classes()` by hand.
 
-### 📈 Example: retrain + weak-class stress augmentation (2026-07-08)
+### 📈 Example: fixing over-fragmented active-learning classes (2026-07-09)
 
-After importing new Label Studio annotations for `Ready-To-Eat/Instant-Noodles` and `Snacks/Chocolate-Bar`, a safe isolated retrain was run directly via `ModelTrainingPipeline` (the same orchestration `retrain_from_label_studio.py` uses, minus the Label Studio pull step) against the full 83-class catalog, then the resulting per-class audit was used to target one more round of shadow-stress augmentation at whichever class actually scored weakest:
+A prior retrain (`retrain_20260709_163218`, folding in real production captures via `retrain_from_label_studio.py`) scored an overall mAP50 of only 0.7870 — a regression from earlier 0.95+ runs. Root cause: `annotation_import.py`'s label routing had let two categories fragment past this project's stated visual-product-class scope (see "About This Project" above) into per-SKU classes — `Ready-To-Eat/Instant-Noodles` split into 21 brand/flavor classes and `Snacks/Chocolate-Bar` into 18, each backed by only 2-4 real photos from active-learning captures. Neither category exists in the original GroceryStoreDataset at all; both were fabricated wholesale by the import at whatever granularity the annotator labeled with, and that granularity was far too fine to be learnable from so few examples per class — no amount of additional per-SKU data collection would fix it without contradicting the project's own scope.
 
-| | Baseline retrain (`retrain_20260708_184220`) | + shadow-stress augmentation (`retrain_20260708_184220_stress`) |
+The fix: flatten both categories' brand/flavor subfolders back into a single coarse leaf class each directly in `dataset/GroceryStoreDataset`, then rerun the same isolated retrain (`ModelTrainingPipeline`, minus the Label Studio pull step):
+
+| | Before (`retrain_20260709_163218`) | After (`retrain_20260709_202721`) |
 |---|---|---|
-| Overall mAP50 | 0.9568 | 0.9572 |
-| Overall mAP50-95 | 0.9382 | 0.9376 |
-| Weakest class: `Packages/Soy-Milk/Alpro-Fresh-Soy-Milk` mAP50 | 0.853 | 0.892 |
-| Weakest class recall | 0.784 | 0.864 |
+| Overall mAP50 | 0.7870 | **0.9542** |
+| Overall mAP50-95 | 0.7661 | **0.9315** |
+| `Ready-To-Eat/Instant-Noodles` mAP50 / recall | mostly zero-detection in production | **0.991 / 0.942** |
+| `Snacks/Chocolate-Bar` mAP50 / recall | fragmented, weak | **0.961 / 0.836** |
 
-The weak class here was **not** `Snacks/Chocolate-Bar` — that class scored 0.966 mAP50 in the baseline retrain, since the Label Studio import had already raised its image count well past "weakest." The actual weakest class was found by reading the baseline retrain's own audit table, then pointing `EnvironmentalStressAugmentor.optimize_target_classes()` at that class's id directly against `synthetic_dataset_retrain/retrain_20260708_184220/train/{images,labels}`, followed by a second training pass (same `data.yaml`, fresh `yolo11n.pt`) into its own isolated run.
-
-Overall metrics held steady and the targeted class improved, but several unrelated classes shifted by a comparable magnitude in both directions — with only one training run per candidate, this is a directionally positive single data point, not strong evidence of a reliable causal effect. **`retrain_20260708_184220` (the baseline, pre-stress-augmentation candidate) is the one actually promoted to `SMARTCART_WEIGHTS_PATH`** — the stress-augmented run's mixed per-class effects weren't judged worth it over the simpler baseline lineage.
-
-Ultralytics' own end-of-training validation plots for the promoted run (`runs/detect/retrain_20260708_184220/`, gitignored — copied here for reference):
-
-<table>
-<tr>
-<td><img src="docs/img/retrain-2026-07-08/confusion_matrix_normalized.png" alt="Normalized confusion matrix, 83 classes" width="420"></td>
-<td><img src="docs/img/retrain-2026-07-08/results.png" alt="Training curves: box/cls/dfl loss, precision, recall, mAP50, mAP50-95 over 30 epochs" width="420"></td>
-</tr>
-<tr>
-<td><img src="docs/img/retrain-2026-07-08/BoxF1_curve.png" alt="F1 score vs. confidence threshold" width="420"></td>
-<td><img src="docs/img/retrain-2026-07-08/BoxP_curve.png" alt="Precision vs. confidence threshold" width="420"></td>
-</tr>
-</table>
-
-The confusion matrix's diagonal dominance (near-white off-diagonal at this scale) reflects the 0.957 aggregate mAP50 — visible off-diagonal mass clusters within coarse categories (e.g. juice variants, yoghurt variants) rather than across them, consistent with the earlier Day 3 review's expectation for this fine-grained catalog. The same plot set exists for the non-promoted stress-augmented run under `runs/detect/retrain_20260708_184220_stress/` locally (not committed, since only one candidate's plots are kept in the repo) for anyone who wants to compare directly.
-
-### 📈 Example: first fully-automated Label Studio retrain (2026-07-09)
-
-The full active learning loop diagrammed above — capture → push → human annotation → pull → retrain → audit → promote — ran end-to-end for real for the first time: 31 production captures (frames the live detector was uncertain about, including several zero-detection misses) were pushed, annotated in Label Studio, then pulled and folded into a retrain via `retrain_from_label_studio.py` alongside the existing 120-class catalog.
-
-```
-Retrain PASSED: mAP50=0.7870 (min 0.5000), mAP50-95=0.7661
-New weights: runs/detect/retrain_20260709_163218/weights/best.pt
-```
-
-Promoted: `SMARTCART_WEIGHTS_PATH` updated to the path above and the API restarted; a live `/predict` call against one of the originally-uncertain captures confirmed the new weights load and detect correctly. Getting here also required two fixes to the loop itself, since neither had been exercised against a real Label Studio instance before:
-
-- **Auth**: Label Studio's Personal Access Token is a refresh token, not a usable API key (see `get_label_studio_auth_headers()` note above) — every Label Studio call now exchanges it for a short-lived access token first.
-- **`.env` loading**: `retrain_from_label_studio.py` and `push_captures_to_label_studio.py` are standalone scripts that don't import `api_server.py`, so they never saw `.env` at all until `load_dotenv()` was added directly to each.
+Promoted: `SMARTCART_WEIGHTS_PATH` updated to `runs/detect/retrain_20260709_202721/weights/best.pt` and the API restarted.
 
 ## 🏗️ Project Architecture
 The project is modularized into `src/` (core logic) and root-level `main_dayN_*.py` scripts (orchestration) — each day's script is a thin entrypoint that imports its logic from `src/`.
