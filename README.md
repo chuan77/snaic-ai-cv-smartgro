@@ -105,6 +105,9 @@ stateDiagram-v2
 The FastAPI backend also exposes a Label Studio ML Backend under `/ls`, plus an uncertainty-based capture pipeline, so production checkout traffic can feed back into future retraining:
 
 - **Env vars** (see `.env.example` for defaults): `LABEL_STUDIO_URL`, `LABEL_STUDIO_API_KEY`, `SMARTCART_LS_FROM_NAME`, `SMARTCART_LS_TO_NAME`, `SMARTCART_LS_DATA_KEY`, `SMARTCART_MODEL_VERSION`, `SMARTCART_LS_PROJECT_ID`, `SMARTCART_CAPTURE_DIR`, `SMARTCART_CAPTURE_CONF_THRESHOLD`, `SMARTCART_CAPTURE_ENABLED`, `SMARTCART_STAGING_PUBLIC_URL`.
+  - `LABEL_STUDIO_API_KEY`: paste whatever Label Studio's Account & Settings → "New Auth Token" dialog gives you — it's actually a refresh token, and the backend automatically exchanges it for a short-lived access token on every call. No manual token handling needed.
+  - `SMARTCART_STAGING_PUBLIC_URL` must include the `/staging` suffix and match wherever the backend is actually reachable (host + the port from `SMARTCART_PORT`), e.g. `http://localhost:8888/staging` — it's not derived automatically from the other server config vars.
+  - `/staging` (where Label Studio loads `$image` from) always sends wide-open CORS (`Access-Control-Allow-Origin: *`) regardless of `SMARTCART_CORS_ORIGINS`, since Label Studio's own origin won't generally match that allowlist. `/predict`/`/catalog` are unaffected and still enforce `SMARTCART_CORS_ORIGINS` normally.
 - **Connect the model in Label Studio:** Settings → Machine Learning → Add Model:
   - **Name**: any descriptive label, e.g. "SmartCart YOLO"
   - **Backend URL**: `http://<host>:8000/ls`
@@ -195,6 +198,20 @@ Ultralytics' own end-of-training validation plots for the promoted run (`runs/de
 </table>
 
 The confusion matrix's diagonal dominance (near-white off-diagonal at this scale) reflects the 0.957 aggregate mAP50 — visible off-diagonal mass clusters within coarse categories (e.g. juice variants, yoghurt variants) rather than across them, consistent with the earlier Day 3 review's expectation for this fine-grained catalog. The same plot set exists for the non-promoted stress-augmented run under `runs/detect/retrain_20260708_184220_stress/` locally (not committed, since only one candidate's plots are kept in the repo) for anyone who wants to compare directly.
+
+### 📈 Example: first fully-automated Label Studio retrain (2026-07-09)
+
+The full active learning loop diagrammed above — capture → push → human annotation → pull → retrain → audit → promote — ran end-to-end for real for the first time: 31 production captures (frames the live detector was uncertain about, including several zero-detection misses) were pushed, annotated in Label Studio, then pulled and folded into a retrain via `retrain_from_label_studio.py` alongside the existing 120-class catalog.
+
+```
+Retrain PASSED: mAP50=0.7870 (min 0.5000), mAP50-95=0.7661
+New weights: runs/detect/retrain_20260709_163218/weights/best.pt
+```
+
+Promoted: `SMARTCART_WEIGHTS_PATH` updated to the path above and the API restarted; a live `/predict` call against one of the originally-uncertain captures confirmed the new weights load and detect correctly. Getting here also required two fixes to the loop itself, since neither had been exercised against a real Label Studio instance before:
+
+- **Auth**: Label Studio's Personal Access Token is a refresh token, not a usable API key (see `get_label_studio_auth_headers()` note above) — every Label Studio call now exchanges it for a short-lived access token first.
+- **`.env` loading**: `retrain_from_label_studio.py` and `push_captures_to_label_studio.py` are standalone scripts that don't import `api_server.py`, so they never saw `.env` at all until `load_dotenv()` was added directly to each.
 
 ## 🏗️ Project Architecture
 The project is modularized into `src/` (core logic) and root-level `main_dayN_*.py` scripts (orchestration) — each day's script is a thin entrypoint that imports its logic from `src/`.
