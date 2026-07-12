@@ -1169,7 +1169,7 @@ git commit -m "feat: orchestrate auto-labeling across a full staging directory"
 
 ---
 
-### Task 9: Candidate report and pipeline state persistence
+### Task 10: Candidate report and pipeline state persistence
 
 **Files:**
 - Create: `src/pipeline/candidate_promotion.py`
@@ -1287,14 +1287,14 @@ git commit -m "feat: add active-learning pipeline state and candidate report per
 
 ---
 
-### Task 10: Promotion decision and file operations
+### Task 11: Promotion decision and file operations
 
 **Files:**
 - Modify: `src/pipeline/candidate_promotion.py`
 - Test: `tests/pipeline/test_candidate_promotion.py`
 
 **Interfaces:**
-- Consumes: `write_promoted_state` from Task 9
+- Consumes: `write_promoted_state` from Task 10
 - Produces: `should_promote(candidate_map50: float, candidate_variant_acc: float, live_map50: float, live_variant_acc: float) -> bool`, `update_env_weights_path(env_path: pathlib.Path, new_value: str) -> None`, `promote(candidate_dir: pathlib.Path, run_name: str, weights_path: pathlib.Path, map50: float, variant_acc: float, artifacts_dir: pathlib.Path, env_path: pathlib.Path, state_path: pathlib.Path) -> None`
 
 - [ ] **Step 1: Write the failing tests**
@@ -1443,7 +1443,7 @@ git commit -m "feat: add mechanical promotion decision and candidate file promot
 
 ---
 
-### Task 11: Scheduler orchestration
+### Task 12: Scheduler orchestration
 
 **Files:**
 - Create: `src/pipeline/al_scheduler.py`
@@ -1807,7 +1807,7 @@ git commit -m "feat: add autonomous active-learning scheduler orchestration"
 
 ---
 
-### Task 12: launchd process management
+### Task 13: launchd process management
 
 **Files:**
 - Create: `launchd/com.smartcart.api.plist`
@@ -1815,7 +1815,7 @@ git commit -m "feat: add autonomous active-learning scheduler orchestration"
 - Create: `launchd/README.md`
 
 **Interfaces:**
-- Consumes: `main_api_server.py` (existing, unmodified), `al_scheduler_check.py` (Task 11)
+- Consumes: `main_api_server.py` (existing, unmodified), `al_scheduler_check.py` (Task 12)
 - Produces: two installable launchd service definitions
 
 - [ ] **Step 1: Write the API server plist**
@@ -1938,21 +1938,21 @@ git commit -m "feat: add launchd services for the API server and active-learning
 **Spec coverage:**
 - VLM auto-importer (mid-band cross-check, zero/low-signal fallback, discard-on-disagreement) → Tasks 5-8. ✓
 - DINOv2 held-out variant-accuracy gate → Tasks 3-4. ✓
-- Candidate staging fix (isolate gallery/catalog from live `./artifacts/`) → Task 11's `run_retrain_cycle` (temp dir + rename, `ModelTrainingPipeline` untouched). ✓
-- Mechanical auto-promotion + state tracking → Tasks 9-10, wired in Task 11. ✓
-- launchd process management + auto-restart on promotion → Task 11 (`restart_api_service`) + Task 12 (plists). ✓
+- Candidate staging fix (isolate gallery/catalog from live `./artifacts/`) → Task 12's `run_retrain_cycle` (temp dir + rename, `ModelTrainingPipeline` untouched). ✓
+- Mechanical auto-promotion + state tracking → Tasks 10-11, wired in Task 12. ✓
+- launchd process management + auto-restart on promotion → Task 12 (`restart_api_service`) + Task 13 (plists). ✓
 - Config additions → each task adds its own `.env.example` lines in the same commit. ✓
 - Passive audit trail (`SMARTCART_AL_AUDIT_SAMPLE_RATE`, `artifacts/al_review/`) from the spec is **not** included in this plan — flagging as a gap.
 
-**Fixing the gap:** the spec's error-handling and config sections both call for a sampled, non-blocking review log. Adding it now as Task 8.5.
+**Fixing the gap:** the spec's error-handling and config sections both call for a sampled, non-blocking review log. Adding it now as Task 9 (renumbering the originally-drafted Tasks 9-12 to 10-13 accordingly).
 
 **Placeholder scan:** no TBD/TODO markers found; every step has complete code.
 
-**Type consistency check:** `auto_import_capture` returns `list[Path]` (Task 8) matching `auto_import_staging_dir`'s `.extend()` usage; `run_retrain_cycle` returns `tuple[dict, Path]` matching `run_scheduler_tick`'s unpacking; `promote()`'s parameter names (`candidate_dir`, `run_name`, `weights_path`, `map50`, `variant_acc`, `artifacts_dir`, `env_path`, `state_path`) match exactly between Task 10's definition and Task 11's call site. `should_promote`'s parameter names (`candidate_map50`, `candidate_variant_acc`, `live_map50`, `live_variant_acc`) match between Task 10 and Task 11. Confirmed consistent throughout.
+**Type consistency check:** `auto_import_capture` returns `list[Path]` (Task 8) matching `auto_import_staging_dir`'s `.extend()` usage; `run_retrain_cycle` returns `tuple[dict, Path]` matching `run_scheduler_tick`'s unpacking; `promote()`'s parameter names (`candidate_dir`, `run_name`, `weights_path`, `map50`, `variant_acc`, `artifacts_dir`, `env_path`, `state_path`) match exactly between Task 11's definition and Task 12's call site. `should_promote`'s parameter names (`candidate_map50`, `candidate_variant_acc`, `live_map50`, `live_variant_acc`) match between Task 11 and Task 12. Confirmed consistent throughout.
 
 ---
 
-### Task 8.5: Passive audit trail for auto-import decisions
+### Task 9: Passive audit trail for auto-import decisions
 
 **Files:**
 - Modify: `src/data/auto_labeler.py`
@@ -2122,3 +2122,4 @@ Expected: PASS (all tests)
 git add src/data/auto_labeler.py src/pipeline/al_scheduler.py tests/data/test_auto_labeler.py .env.example
 git commit -m "feat: add passive sampled audit trail for auto-import decisions"
 ```
+
