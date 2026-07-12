@@ -1,11 +1,22 @@
+import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from src.pipeline.al_scheduler import (
     get_retrain_trigger_count,
+    restart_api_service,
     run_retrain_cycle,
     run_scheduler_tick,
 )
+
+
+def test_restart_api_service_uses_domain_qualified_launchctl_target():
+    with patch("src.pipeline.al_scheduler.subprocess.run") as mock_run:
+        restart_api_service()
+
+    mock_run.assert_called_once_with(
+        ["launchctl", "kickstart", "-k", f"gui/{os.getuid()}/com.smartcart.api"], check=False
+    )
 
 
 def test_get_retrain_trigger_count_default_and_override(monkeypatch):

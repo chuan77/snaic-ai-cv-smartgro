@@ -50,7 +50,7 @@ def run_retrain_cycle(
 
 
 def restart_api_service() -> None:
-    subprocess.run(["launchctl", "kickstart", "-k", "com.smartcart.api"], check=False)
+    subprocess.run(["launchctl", "kickstart", "-k", f"gui/{os.getuid()}/com.smartcart.api"], check=False)
 
 
 def run_scheduler_tick(
