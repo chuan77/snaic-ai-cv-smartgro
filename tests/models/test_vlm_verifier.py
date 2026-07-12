@@ -89,3 +89,16 @@ def test_ask_vlm_returns_none_on_malformed_response(monkeypatch):
     monkeypatch.setattr("src.models.vlm_verifier.httpx.post", fake_post)
 
     assert ask_vlm(Image.new("RGB", (4, 4)), "Which category?") is None
+
+
+def test_ask_vlm_returns_none_when_image_encoding_raises(monkeypatch):
+    def fake_image_to_data_url(image):
+        raise OSError("corrupt or truncated image")
+
+    def fake_post(url, json=None, timeout=None):
+        raise AssertionError("httpx.post should not be called when image encoding fails")
+
+    monkeypatch.setattr("src.models.vlm_verifier.image_to_data_url", fake_image_to_data_url)
+    monkeypatch.setattr("src.models.vlm_verifier.httpx.post", fake_post)
+
+    assert ask_vlm(Image.new("RGB", (4, 4)), "Which category?") is None

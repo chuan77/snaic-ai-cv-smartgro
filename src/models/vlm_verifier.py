@@ -37,8 +37,8 @@ def build_chat_payload(model: str, prompt: str, data_url: str) -> dict:
 
 
 def ask_vlm(image: Image.Image, prompt: str, timeout: float = 30.0) -> str | None:
-    payload = build_chat_payload(get_vlm_model(), prompt, image_to_data_url(image))
     try:
+        payload = build_chat_payload(get_vlm_model(), prompt, image_to_data_url(image))
         response = httpx.post(f"{get_vlm_base_url()}/api/v1/chat", json=payload, timeout=timeout)
         response.raise_for_status()
         return response.json()["output"][0]["content"]
