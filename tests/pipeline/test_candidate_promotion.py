@@ -57,3 +57,70 @@ def test_write_candidate_report_creates_candidate_dir_when_missing(tmp_path):
     assert candidate_dir.is_dir()
     assert path == candidate_dir / "report.json"
     assert json.loads(path.read_text()) == report
+
+
+from src.pipeline.candidate_promotion import promote, should_promote, update_env_weights_path
+
+
+def test_should_promote_true_when_both_metrics_improve_or_tie():
+    assert should_promote(candidate_map50=0.8, candidate_variant_acc=0.9, live_map50=0.7, live_variant_acc=0.9) is True
+
+
+def test_should_promote_false_when_either_metric_regresses():
+    assert should_promote(0.6, 0.9, live_map50=0.7, live_variant_acc=0.9) is False
+    assert should_promote(0.8, 0.5, live_map50=0.7, live_variant_acc=0.6) is False
+
+
+def test_update_env_weights_path_replaces_existing_line(tmp_path):
+    env_path = tmp_path / ".env"
+    env_path.write_text("SMARTCART_PORT=8000\nSMARTCART_WEIGHTS_PATH=./old/path.pt\nSMARTCART_HOST=0.0.0.0\n")
+
+    update_env_weights_path(env_path, "./new/path.pt")
+
+    lines = env_path.read_text().splitlines()
+    assert "SMARTCART_WEIGHTS_PATH=./new/path.pt" in lines
+    assert "SMARTCART_PORT=8000" in lines
+    assert "SMARTCART_HOST=0.0.0.0" in lines
+
+
+def test_update_env_weights_path_appends_when_missing(tmp_path):
+    env_path = tmp_path / ".env"
+    env_path.write_text("SMARTCART_PORT=8000\n")
+
+    update_env_weights_path(env_path, "./new/path.pt")
+
+    assert "SMARTCART_WEIGHTS_PATH=./new/path.pt" in env_path.read_text().splitlines()
+
+
+def test_promote_copies_candidate_files_updates_env_and_state(tmp_path):
+    candidate_dir = tmp_path / "candidates" / "retrain_1"
+    candidate_dir.mkdir(parents=True)
+    (candidate_dir / "catalog_prices.csv").write_text("class_id,product_name,price_usd\n")
+    (candidate_dir / "gallery_index.npy").write_bytes(b"fake-npy")
+    (candidate_dir / "gallery_meta.csv").write_text("class_id,product_name,file_name\n")
+
+    artifacts_dir = tmp_path / "artifacts"
+    env_path = tmp_path / ".env"
+    env_path.write_text("SMARTCART_WEIGHTS_PATH=./old/best.pt\n")
+    state_path = tmp_path / "state.json"
+
+    promote(
+        candidate_dir=candidate_dir,
+        run_name="retrain_1",
+        weights_path=tmp_path / "runs" / "retrain_1" / "weights" / "best.pt",
+        map50=0.8,
+        variant_acc=0.9,
+        artifacts_dir=artifacts_dir,
+        env_path=env_path,
+        state_path=state_path,
+    )
+
+    assert (artifacts_dir / "catalog_prices.csv").exists()
+    assert (artifacts_dir / "gallery_index.npy").exists()
+    assert (artifacts_dir / "gallery_meta.csv").exists()
+    assert f"SMARTCART_WEIGHTS_PATH={tmp_path / 'runs' / 'retrain_1' / 'weights' / 'best.pt'}" in env_path.read_text()
+
+    state = json.loads(state_path.read_text())
+    assert state["run_name"] == "retrain_1"
+    assert state["map50"] == 0.8
+    assert state["variant_accuracy"] == 0.9
