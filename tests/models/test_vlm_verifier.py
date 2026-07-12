@@ -1,0 +1,91 @@
+import base64
+
+from PIL import Image
+
+from src.models.vlm_verifier import (
+    ask_vlm,
+    build_chat_payload,
+    get_vlm_base_url,
+    get_vlm_model,
+    image_to_data_url,
+)
+
+
+def test_get_vlm_base_url_default_and_override(monkeypatch):
+    monkeypatch.delenv("SMARTCART_VLM_BASE_URL", raising=False)
+    assert get_vlm_base_url() == "http://localhost:1234"
+
+    monkeypatch.setenv("SMARTCART_VLM_BASE_URL", "http://example.com:9999/")
+    assert get_vlm_base_url() == "http://example.com:9999"
+
+
+def test_get_vlm_model_default_and_override(monkeypatch):
+    monkeypatch.delenv("SMARTCART_VLM_MODEL", raising=False)
+    assert get_vlm_model() == "qwen2.5-vl-3b-instruct"
+
+    monkeypatch.setenv("SMARTCART_VLM_MODEL", "other-model")
+    assert get_vlm_model() == "other-model"
+
+
+def test_image_to_data_url_round_trips_as_jpeg():
+    image = Image.new("RGB", (4, 4), color=(255, 0, 0))
+
+    data_url = image_to_data_url(image)
+
+    assert data_url.startswith("data:image/jpeg;base64,")
+    decoded = base64.b64decode(data_url.split(",", 1)[1])
+    assert decoded[:2] == b"\xff\xd8"  # JPEG magic bytes
+
+
+def test_build_chat_payload_matches_lm_studio_schema():
+    payload = build_chat_payload("qwen2.5-vl-3b-instruct", "What is this?", "data:image/jpeg;base64,ABC")
+
+    assert payload == {
+        "model": "qwen2.5-vl-3b-instruct",
+        "input": [
+            {"type": "text", "content": "What is this?"},
+            {"type": "image", "data_url": "data:image/jpeg;base64,ABC"},
+        ],
+    }
+
+
+def test_ask_vlm_posts_to_chat_endpoint_and_returns_content(monkeypatch):
+    captured = {}
+
+    def fake_post(url, json=None, timeout=None):
+        captured["url"] = url
+        captured["json"] = json
+        response = type("R", (), {})()
+        response.raise_for_status = lambda: None
+        response.json = lambda: {"output": [{"type": "message", "content": "Fruit/Apple"}]}
+        return response
+
+    monkeypatch.setenv("SMARTCART_VLM_BASE_URL", "http://localhost:1234")
+    monkeypatch.setattr("src.models.vlm_verifier.httpx.post", fake_post)
+
+    answer = ask_vlm(Image.new("RGB", (4, 4)), "Which category?")
+
+    assert answer == "Fruit/Apple"
+    assert captured["url"] == "http://localhost:1234/api/v1/chat"
+    assert captured["json"]["input"][0] == {"type": "text", "content": "Which category?"}
+
+
+def test_ask_vlm_returns_none_on_any_error(monkeypatch):
+    def fake_post(url, json=None, timeout=None):
+        raise ConnectionError("LM Studio not running")
+
+    monkeypatch.setattr("src.models.vlm_verifier.httpx.post", fake_post)
+
+    assert ask_vlm(Image.new("RGB", (4, 4)), "Which category?") is None
+
+
+def test_ask_vlm_returns_none_on_malformed_response(monkeypatch):
+    def fake_post(url, json=None, timeout=None):
+        response = type("R", (), {})()
+        response.raise_for_status = lambda: None
+        response.json = lambda: {"unexpected": "shape"}
+        return response
+
+    monkeypatch.setattr("src.models.vlm_verifier.httpx.post", fake_post)
+
+    assert ask_vlm(Image.new("RGB", (4, 4)), "Which category?") is None
