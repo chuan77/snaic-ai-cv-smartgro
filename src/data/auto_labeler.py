@@ -2,6 +2,7 @@
 independent second opinion, in place of Label Studio human review. Every
 staged capture is either imported into the dataset tree or discarded --
 never left pending, since there is no human to eventually review it."""
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -14,6 +15,29 @@ from src.models.vlm_verifier import ask_vlm, match_category, parse_grounding_box
 
 def get_autolabel_min_conf() -> float:
     return float(os.environ.get("SMARTCART_AUTOLABEL_MIN_CONF", "0.35"))
+
+
+def get_audit_sample_rate() -> float:
+    return float(os.environ.get("SMARTCART_AL_AUDIT_SAMPLE_RATE", "0.05"))
+
+
+def should_sample(capture_id: str, sample_rate: float) -> bool:
+    """Deterministic per-capture sampling (same capture_id always samples the
+    same way) so re-running a scheduler tick doesn't churn the review log."""
+    if sample_rate <= 0.0:
+        return False
+    if sample_rate >= 1.0:
+        return True
+    digest = int(hashlib.sha256(capture_id.encode()).hexdigest(), 16)
+    return (digest % 10_000) / 10_000 < sample_rate
+
+
+def log_review_sample(review_dir: Path, capture_id: str, image: Image.Image, decision: dict) -> None:
+    """Writes a sampled auto-import decision for optional, non-blocking human
+    spot-checking. Nothing reads this directory automatically."""
+    review_dir.mkdir(parents=True, exist_ok=True)
+    image.convert("RGB").save(review_dir / f"{capture_id}.jpg")
+    (review_dir / f"{capture_id}.json").write_text(json.dumps(decision))
 
 
 def pending_sidecars(staging_dir: Path) -> list[Path]:
@@ -113,6 +137,7 @@ def auto_import_capture(
     dataset_root: Path,
     min_conf: float,
     max_conf: float,
+    review_dir: Path | None = None,
 ) -> list[Path]:
     """Processes one staged capture end-to-end and always marks it consumed
     afterward (even on error), so the scheduler never reprocesses it and one
@@ -124,17 +149,25 @@ def auto_import_capture(
         with Image.open(image_path).convert("RGB") as image:
             detections = capture["detections"]
             capture_id = sidecar_path.stem
-            if classify_capture(detections, min_conf, max_conf) == "zero_or_low":
+            category = classify_capture(detections, min_conf, max_conf)
+
+            if category == "zero_or_low":
                 result = auto_import_low_signal_frame(image, class_names, dataset_root, capture_id)
                 if result is not None:
                     imported.append(result)
+                outcome = [{"detection": None, "outcome": "imported" if result else "discarded"}]
             else:
+                outcome = []
                 for i, detection in enumerate(detections):
                     result = auto_import_mid_band_detection(
                         image, detection, class_names, dataset_root, f"{capture_id}_{i}"
                     )
                     if result is not None:
                         imported.append(result)
+                    outcome.append({"detection": detection["class_name"], "outcome": "imported" if result else "discarded"})
+
+            if review_dir is not None and should_sample(capture_id, get_audit_sample_rate()):
+                log_review_sample(review_dir, capture_id, image, {"category": category, "decisions": outcome})
     except Exception:
         pass
     finally:
@@ -143,9 +176,16 @@ def auto_import_capture(
 
 
 def auto_import_staging_dir(
-    staging_dir: Path, class_names: list[str], dataset_root: Path, min_conf: float, max_conf: float
+    staging_dir: Path,
+    class_names: list[str],
+    dataset_root: Path,
+    min_conf: float,
+    max_conf: float,
+    review_dir: Path | None = None,
 ) -> list[Path]:
     imported: list[Path] = []
     for sidecar_path in pending_sidecars(staging_dir):
-        imported.extend(auto_import_capture(sidecar_path, staging_dir, class_names, dataset_root, min_conf, max_conf))
+        imported.extend(
+            auto_import_capture(sidecar_path, staging_dir, class_names, dataset_root, min_conf, max_conf, review_dir)
+        )
     return imported

@@ -294,3 +294,38 @@ def test_auto_import_staging_dir_skips_bad_capture_but_still_processes_good_one(
     assert (tmp_path / "consumed" / "bad.json").exists()
     assert (tmp_path / "consumed" / "good.json").exists()
     assert pending_sidecars(tmp_path) == []
+
+
+# --- Audit trail sampling tests ---
+
+from src.data.auto_labeler import get_audit_sample_rate, log_review_sample, should_sample
+
+
+def test_get_audit_sample_rate_default_and_override(monkeypatch):
+    monkeypatch.delenv("SMARTCART_AL_AUDIT_SAMPLE_RATE", raising=False)
+    assert get_audit_sample_rate() == 0.05
+
+    monkeypatch.setenv("SMARTCART_AL_AUDIT_SAMPLE_RATE", "0.5")
+    assert get_audit_sample_rate() == 0.5
+
+
+def test_should_sample_is_deterministic_per_capture_id():
+    # same capture_id always yields the same sampling decision
+    first = should_sample("abc123", sample_rate=0.5)
+    second = should_sample("abc123", sample_rate=0.5)
+    assert first == second
+
+
+def test_should_sample_respects_zero_and_one_bounds():
+    assert should_sample("any-id", sample_rate=0.0) is False
+    assert should_sample("any-id", sample_rate=1.0) is True
+
+
+def test_log_review_sample_writes_image_and_decision_json(tmp_path):
+    image = Image.new("RGB", (10, 10), color=(0, 255, 0))
+    decision = {"vlm_answer": "Fruit/Apple/Royal-Gala", "yolo_class": "Fruit/Apple/Royal-Gala", "outcome": "imported"}
+
+    log_review_sample(tmp_path, "cap1", image, decision)
+
+    assert (tmp_path / "cap1.jpg").exists()
+    assert json.loads((tmp_path / "cap1.json").read_text()) == decision
