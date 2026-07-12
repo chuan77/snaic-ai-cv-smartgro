@@ -35,6 +35,10 @@ def write_candidate_report(candidate_dir: Path, report: dict) -> Path:
 _CANDIDATE_FILES = ("catalog_prices.csv", "gallery_index.npy", "gallery_meta.csv")
 
 
+def get_retrain_min_variant_acc() -> float:
+    return float(os.environ.get("SMARTCART_RETRAIN_MIN_VARIANT_ACC", "0.5"))
+
+
 def should_promote(
     candidate_map50: float, candidate_variant_acc: float, live_map50: float, live_variant_acc: float
 ) -> bool:

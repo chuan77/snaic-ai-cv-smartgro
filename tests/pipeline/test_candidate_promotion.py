@@ -59,7 +59,20 @@ def test_write_candidate_report_creates_candidate_dir_when_missing(tmp_path):
     assert json.loads(path.read_text()) == report
 
 
-from src.pipeline.candidate_promotion import promote, should_promote, update_env_weights_path
+from src.pipeline.candidate_promotion import (
+    get_retrain_min_variant_acc,
+    promote,
+    should_promote,
+    update_env_weights_path,
+)
+
+
+def test_get_retrain_min_variant_acc_default_and_override(monkeypatch):
+    monkeypatch.delenv("SMARTCART_RETRAIN_MIN_VARIANT_ACC", raising=False)
+    assert get_retrain_min_variant_acc() == 0.5
+
+    monkeypatch.setenv("SMARTCART_RETRAIN_MIN_VARIANT_ACC", "0.7")
+    assert get_retrain_min_variant_acc() == 0.7
 
 
 def test_should_promote_true_when_both_metrics_improve_or_tie():
