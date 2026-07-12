@@ -3,6 +3,7 @@ captures via the VLM, and if enough new crops have accumulated, run a full
 retrain cycle against an isolated candidate directory, gate it on both YOLO
 mAP50 and DINOv2 held-out variant accuracy, and auto-promote if it doesn't
 regress either metric versus the currently-live model."""
+import logging
 import os
 import shutil
 import subprocess
@@ -24,6 +25,8 @@ from src.pipeline.candidate_promotion import (
     write_promoted_state,
 )
 from src.pipeline.training_pipeline import ModelTrainingPipeline
+
+logger = logging.getLogger("ALScheduler")
 
 
 def get_retrain_trigger_count() -> int:
@@ -82,49 +85,59 @@ def run_scheduler_tick(
         write_promoted_state(state_path, {**state, "pending_auto_imported": pending})
         return {"retrained": False, "auto_imported": len(imported)}
 
-    train_result, candidate_dir = run_retrain_cycle(dataset_root, candidates_root, runs_dir, synth_root)
+    try:
+        train_result, candidate_dir = run_retrain_cycle(dataset_root, candidates_root, runs_dir, synth_root)
 
-    embeddings = np.load(candidate_dir / "gallery_index.npy")
-    meta = pd.read_csv(candidate_dir / "gallery_meta.csv")
-    variant_acc, excluded = compute_variant_accuracy(embeddings, meta)
+        embeddings = np.load(candidate_dir / "gallery_index.npy")
+        meta = pd.read_csv(candidate_dir / "gallery_meta.csv")
+        variant_acc, excluded = compute_variant_accuracy(embeddings, meta)
 
-    promoted = (
-        should_promote(
-            candidate_map50=train_result["map50"],
-            candidate_variant_acc=variant_acc,
-            live_map50=state["map50"],
-            live_variant_acc=state["variant_accuracy"],
+        promoted = (
+            should_promote(
+                candidate_map50=train_result["map50"],
+                candidate_variant_acc=variant_acc,
+                live_map50=state["map50"],
+                live_variant_acc=state["variant_accuracy"],
+            )
+            and train_result["passed"]
+            and variant_acc >= get_retrain_min_variant_acc()
         )
-        and train_result["passed"]
-        and variant_acc >= get_retrain_min_variant_acc()
-    )
 
-    write_candidate_report(
-        candidate_dir,
-        {
-            **train_result,
-            "weights_path": str(train_result["weights_path"]),
-            "data_yaml": str(train_result.get("data_yaml", "")),
-            "variant_accuracy": variant_acc,
-            "variant_excluded_count": excluded,
+        write_candidate_report(
+            candidate_dir,
+            {
+                **train_result,
+                "weights_path": str(train_result["weights_path"]),
+                "data_yaml": str(train_result.get("data_yaml", "")),
+                "variant_accuracy": variant_acc,
+                "variant_excluded_count": excluded,
+                "promoted": promoted,
+                "auto_imported_count": len(imported),
+            },
+        )
+
+        if promoted:
+            promote(
+                candidate_dir=candidate_dir,
+                run_name=train_result["run_name"],
+                weights_path=train_result["weights_path"],
+                map50=train_result["map50"],
+                variant_acc=variant_acc,
+                artifacts_dir=artifacts_dir,
+                env_path=env_path,
+                state_path=state_path,
+            )
+            restart_api_service()
+        else:
+            write_promoted_state(state_path, {**state, "pending_auto_imported": 0})
+
+        return {
+            "retrained": True,
+            "auto_imported": len(imported),
             "promoted": promoted,
-            "auto_imported_count": len(imported),
-        },
-    )
-
-    if promoted:
-        promote(
-            candidate_dir=candidate_dir,
-            run_name=train_result["run_name"],
-            weights_path=train_result["weights_path"],
-            map50=train_result["map50"],
-            variant_acc=variant_acc,
-            artifacts_dir=artifacts_dir,
-            env_path=env_path,
-            state_path=state_path,
-        )
-        restart_api_service()
-    else:
-        write_promoted_state(state_path, {**state, "pending_auto_imported": 0})
-
-    return {"retrained": True, "auto_imported": len(imported), "promoted": promoted, "run_name": train_result["run_name"]}
+            "run_name": train_result["run_name"],
+        }
+    except Exception as e:
+        logger.warning("Retrain/audit/promote cycle failed; scheduler tick continuing.", exc_info=True)
+        write_promoted_state(state_path, {**state, "pending_auto_imported": pending})
+        return {"retrained": False, "auto_imported": len(imported), "error": str(e)}

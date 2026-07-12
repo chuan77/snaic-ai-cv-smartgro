@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -244,3 +245,40 @@ def test_run_scheduler_tick_passes_review_dir_to_auto_import(tmp_path, monkeypat
     mock_retrain.assert_not_called()
     _, kwargs = mock_auto_import.call_args
     assert kwargs.get("review_dir") == artifacts_dir / "al_review"
+
+
+def test_run_scheduler_tick_catches_exception_from_retrain_cycle(tmp_path, monkeypatch):
+    """A training error, OOM, or corrupt candidate file must not propagate out of
+    run_scheduler_tick -- it should be logged and reported in the result instead."""
+    monkeypatch.setenv("SMARTCART_AL_RETRAIN_TRIGGER_COUNT", "1")
+    staging_dir = tmp_path / "staging"
+    staging_dir.mkdir()
+    state_path = tmp_path / "state.json"
+
+    with patch("src.pipeline.al_scheduler.GroceryDatasetIndexer") as mock_indexer_cls, \
+         patch("src.pipeline.al_scheduler.auto_import_staging_dir", return_value=[Path("a.jpg")]), \
+         patch("src.pipeline.al_scheduler.run_retrain_cycle", side_effect=RuntimeError("MPS OOM")) as mock_retrain, \
+         patch("src.pipeline.al_scheduler.restart_api_service") as mock_restart:
+        mock_indexer_cls.return_value.build_class_map.return_value = {"Fruit/Apple/Royal-Gala": 0}
+
+        result = run_scheduler_tick(
+            dataset_root=tmp_path / "dataset",
+            staging_dir=staging_dir,
+            artifacts_dir=tmp_path / "artifacts",
+            candidates_root=tmp_path / "candidates",
+            runs_dir=tmp_path / "runs",
+            synth_root=tmp_path / "synth",
+            env_path=tmp_path / ".env",
+            state_path=state_path,
+        )
+
+    mock_retrain.assert_called_once()
+    mock_restart.assert_not_called()
+    assert result["retrained"] is False
+    assert result["auto_imported"] == 1
+    assert result["error"] == "MPS OOM"
+
+    # pending_auto_imported must be preserved (not reset to 0) so a transient
+    # failure doesn't silently discard the accumulated trigger count.
+    persisted_state = json.loads(state_path.read_text())
+    assert persisted_state["pending_auto_imported"] == 1
