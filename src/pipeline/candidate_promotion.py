@@ -56,6 +56,28 @@ def update_env_weights_path(env_path: Path, new_value: str) -> None:
     env_path.write_text("\n".join(lines) + "\n")
 
 
+def seed_baseline_state(
+    weights_path: Path, data_yaml: Path, gallery_index_path: Path, gallery_meta_path: Path, state_path: Path
+) -> dict:
+    """Measures the currently-live model's real mAP50 and DINOv2 variant accuracy and
+    writes them into the pipeline state file as the baseline for the first autonomous
+    promotion decision to compare against -- run once before the al-scheduler service
+    is installed, so 'is this candidate better?' compares against reality, not zero."""
+    from src.models.auditor import CheckoutModelAuditor
+    from src.models.variant_auditor import compute_variant_accuracy
+    import numpy as np
+    import pandas as pd
+
+    map50, _ = CheckoutModelAuditor(weights_path).perform_validation_audit(data_yaml)
+    embeddings = np.load(gallery_index_path)
+    meta = pd.read_csv(gallery_meta_path)
+    variant_acc, _ = compute_variant_accuracy(embeddings, meta)
+
+    state = {"run_name": "baseline", "map50": map50, "variant_accuracy": variant_acc, "pending_auto_imported": 0}
+    write_promoted_state(state_path, state)
+    return state
+
+
 def promote(
     candidate_dir: Path,
     run_name: str,

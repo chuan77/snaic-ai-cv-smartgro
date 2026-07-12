@@ -9,6 +9,16 @@ Both plists use `__REPO_ROOT__` as a placeholder. Replace it with this repo's ab
     sed "s|__REPO_ROOT__|$(pwd)|g" launchd/com.smartcart.api.plist > ~/Library/LaunchAgents/com.smartcart.api.plist
     sed "s|__REPO_ROOT__|$(pwd)|g" launchd/com.smartcart.al-scheduler.plist > ~/Library/LaunchAgents/com.smartcart.al-scheduler.plist
     mkdir -p artifacts/logs
+
+Before loading the al-scheduler service, seed the pipeline state with the currently-live
+model's real metrics -- otherwise the first autonomous promotion only has to clear the
+absolute floors (`SMARTCART_RETRAIN_MIN_MAP50`/`SMARTCART_RETRAIN_MIN_VARIANT_ACC`) rather
+than actually beat the model already in production:
+
+    uv run python seed_al_baseline.py
+
+Then load both services:
+
     launchctl load ~/Library/LaunchAgents/com.smartcart.api.plist
     launchctl load ~/Library/LaunchAgents/com.smartcart.al-scheduler.plist
 

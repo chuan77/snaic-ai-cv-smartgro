@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 from src.pipeline.candidate_promotion import (
     get_promoted_state_path,
@@ -137,3 +138,45 @@ def test_promote_copies_candidate_files_updates_env_and_state(tmp_path):
     assert state["run_name"] == "retrain_1"
     assert state["map50"] == 0.8
     assert state["variant_accuracy"] == 0.9
+
+
+from src.pipeline.candidate_promotion import seed_baseline_state
+
+
+def test_seed_baseline_state_measures_live_model_and_writes_state(tmp_path):
+    weights_path = tmp_path / "best.pt"
+    data_yaml = tmp_path / "data.yaml"
+    gallery_index_path = tmp_path / "gallery_index.npy"
+    gallery_meta_path = tmp_path / "gallery_meta.csv"
+    state_path = tmp_path / "al_pipeline_state.json"
+
+    mock_auditor_instance = MagicMock()
+    mock_auditor_instance.perform_validation_audit.return_value = (0.79, 0.55)
+
+    with patch("src.models.auditor.CheckoutModelAuditor", return_value=mock_auditor_instance) as mock_auditor_cls, \
+         patch("src.models.variant_auditor.compute_variant_accuracy", return_value=(0.92, 0)) as mock_variant_acc, \
+         patch("numpy.load", return_value="fake-embeddings") as mock_np_load, \
+         patch("pandas.read_csv", return_value="fake-meta") as mock_pd_read_csv:
+        result = seed_baseline_state(
+            weights_path=weights_path,
+            data_yaml=data_yaml,
+            gallery_index_path=gallery_index_path,
+            gallery_meta_path=gallery_meta_path,
+            state_path=state_path,
+        )
+
+    mock_auditor_cls.assert_called_once_with(weights_path)
+    mock_auditor_instance.perform_validation_audit.assert_called_once_with(data_yaml)
+    mock_np_load.assert_called_once_with(gallery_index_path)
+    mock_pd_read_csv.assert_called_once_with(gallery_meta_path)
+    mock_variant_acc.assert_called_once_with("fake-embeddings", "fake-meta")
+
+    assert result == {
+        "run_name": "baseline",
+        "map50": 0.79,
+        "variant_accuracy": 0.92,
+        "pending_auto_imported": 0,
+    }
+
+    state = json.loads(state_path.read_text())
+    assert state == result
