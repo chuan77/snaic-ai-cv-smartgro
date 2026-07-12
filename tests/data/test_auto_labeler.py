@@ -18,7 +18,9 @@ def test_get_autolabel_min_conf_default_and_override(monkeypatch):
 
 def _write_sidecar(staging_dir, name, detections):
     staging_dir.mkdir(parents=True, exist_ok=True)
-    (staging_dir / f"{name}.jpg").write_bytes(b"fake-jpg")
+    # Create a valid test image
+    image = Image.new("RGB", (64, 32), color=(255, 0, 0))
+    image.save(staging_dir / f"{name}.jpg")
     sidecar = {
         "captured_at": "2026-07-11T00:00:00",
         "image_file": f"{name}.jpg",
@@ -172,3 +174,69 @@ def test_auto_import_low_signal_frame_discards_when_vlm_unavailable(tmp_path):
         result = auto_import_low_signal_frame(image, ["Fruit/Apple/Royal-Gala"], tmp_path, capture_id="cap5")
 
     assert result is None
+
+
+from src.data.auto_labeler import auto_import_capture, auto_import_staging_dir
+
+
+def test_auto_import_capture_imports_mid_band_and_marks_consumed(tmp_path):
+    sidecar_path = _write_sidecar(
+        tmp_path, "one", [{"class_name": "Fruit/Apple/Royal-Gala", "confidence": 0.4, "bbox": [0, 0, 50, 50]}]
+    )
+    dataset_root = tmp_path / "dataset"
+
+    with patch("src.data.auto_labeler.ask_vlm", return_value="Fruit/Apple/Royal-Gala"):
+        imported = auto_import_capture(
+            sidecar_path, tmp_path, ["Fruit/Apple/Royal-Gala"], dataset_root, min_conf=0.35, max_conf=0.5
+        )
+
+    assert len(imported) == 1
+    assert not sidecar_path.exists()
+    assert (tmp_path / "consumed" / "one.json").exists()
+
+
+def test_auto_import_capture_routes_zero_detection_to_low_signal_path(tmp_path):
+    sidecar_path = _write_sidecar(tmp_path, "two", [])
+    dataset_root = tmp_path / "dataset"
+
+    with patch("src.data.auto_labeler.ask_vlm", return_value="Fruit/Apple/Royal-Gala"):
+        imported = auto_import_capture(
+            sidecar_path, tmp_path, ["Fruit/Apple/Royal-Gala"], dataset_root, min_conf=0.35, max_conf=0.5
+        )
+
+    assert len(imported) == 1
+    assert (tmp_path / "consumed" / "two.json").exists()
+
+
+def test_auto_import_capture_discards_multiple_mid_band_detections_independently(tmp_path):
+    sidecar_path = _write_sidecar(
+        tmp_path,
+        "three",
+        [
+            {"class_name": "Fruit/Apple/Royal-Gala", "confidence": 0.4, "bbox": [0, 0, 20, 20]},
+            {"class_name": "Snacks/Chocolate-Bar/Cadbury", "confidence": 0.45, "bbox": [20, 20, 40, 40]},
+        ],
+    )
+    dataset_root = tmp_path / "dataset"
+    class_names = ["Fruit/Apple/Royal-Gala", "Snacks/Chocolate-Bar/Cadbury"]
+
+    answers = iter(["Fruit/Apple/Royal-Gala", "I don't know"])
+    with patch("src.data.auto_labeler.ask_vlm", side_effect=lambda *a, **k: next(answers)):
+        imported = auto_import_capture(sidecar_path, tmp_path, class_names, dataset_root, 0.35, 0.5)
+
+    assert len(imported) == 1  # only the agreeing detection is imported
+    assert (tmp_path / "consumed" / "three.json").exists()
+
+
+def test_auto_import_staging_dir_processes_all_pending_and_returns_combined_list(tmp_path):
+    _write_sidecar(tmp_path, "one", [{"class_name": "Fruit/Apple/Royal-Gala", "confidence": 0.4, "bbox": [0, 0, 20, 20]}])
+    _write_sidecar(tmp_path, "two", [])
+    dataset_root = tmp_path / "dataset"
+
+    with patch("src.data.auto_labeler.ask_vlm", return_value="Fruit/Apple/Royal-Gala"):
+        imported = auto_import_staging_dir(
+            tmp_path, ["Fruit/Apple/Royal-Gala"], dataset_root, min_conf=0.35, max_conf=0.5
+        )
+
+    assert len(imported) == 2
+    assert pending_sidecars(tmp_path) == []

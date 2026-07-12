@@ -2,6 +2,7 @@
 independent second opinion, in place of Label Studio human review. Every
 staged capture is either imported into the dataset tree or discarded --
 never left pending, since there is no human to eventually review it."""
+import json
 import os
 from pathlib import Path
 
@@ -99,3 +100,49 @@ def auto_import_low_signal_frame(
     dest_path = dest_dir / f"{capture_id}.jpg"
     crop.save(dest_path)
     return dest_path
+
+
+def load_capture(sidecar_path: Path) -> dict:
+    return json.loads(sidecar_path.read_text())
+
+
+def auto_import_capture(
+    sidecar_path: Path,
+    staging_dir: Path,
+    class_names: list[str],
+    dataset_root: Path,
+    min_conf: float,
+    max_conf: float,
+) -> list[Path]:
+    """Processes one staged capture end-to-end and always marks it consumed
+    afterward, so the scheduler never reprocesses it regardless of outcome."""
+    capture = load_capture(sidecar_path)
+    image_path = staging_dir / capture["image_file"]
+    imported: list[Path] = []
+
+    with Image.open(image_path).convert("RGB") as image:
+        detections = capture["detections"]
+        capture_id = sidecar_path.stem
+        if classify_capture(detections, min_conf, max_conf) == "zero_or_low":
+            result = auto_import_low_signal_frame(image, class_names, dataset_root, capture_id)
+            if result is not None:
+                imported.append(result)
+        else:
+            for i, detection in enumerate(detections):
+                result = auto_import_mid_band_detection(
+                    image, detection, class_names, dataset_root, f"{capture_id}_{i}"
+                )
+                if result is not None:
+                    imported.append(result)
+
+    mark_consumed(sidecar_path)
+    return imported
+
+
+def auto_import_staging_dir(
+    staging_dir: Path, class_names: list[str], dataset_root: Path, min_conf: float, max_conf: float
+) -> list[Path]:
+    imported: list[Path] = []
+    for sidecar_path in pending_sidecars(staging_dir):
+        imported.extend(auto_import_capture(sidecar_path, staging_dir, class_names, dataset_root, min_conf, max_conf))
+    return imported
