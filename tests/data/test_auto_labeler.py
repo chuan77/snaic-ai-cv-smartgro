@@ -66,3 +66,59 @@ def test_classify_capture_mid_band_when_all_detections_in_band():
     detections = [{"confidence": 0.4}, {"confidence": 0.45}]
 
     assert classify_capture(detections, min_conf=0.35, max_conf=0.5) == "mid_band"
+
+
+from unittest.mock import patch
+
+from PIL import Image
+
+from src.data.auto_labeler import auto_import_mid_band_detection
+
+
+def test_auto_import_mid_band_detection_imports_when_vlm_agrees(tmp_path):
+    image = Image.new("RGB", (100, 100), color=(255, 0, 0))
+    detection = {"class_name": "Fruit/Apple/Royal-Gala", "confidence": 0.4, "bbox": [10, 10, 60, 60]}
+    class_names = ["Fruit/Apple/Royal-Gala", "Snacks/Chocolate-Bar/Cadbury"]
+
+    with patch("src.data.auto_labeler.ask_vlm", return_value="This looks like a Royal-Gala apple"):
+        result = auto_import_mid_band_detection(image, detection, class_names, tmp_path, capture_id="cap1")
+
+    expected_path = tmp_path / "Fruit/Apple/Royal-Gala" / "cap1.jpg"
+    assert result == expected_path
+    assert expected_path.exists()
+
+
+def test_auto_import_mid_band_detection_discards_when_vlm_disagrees(tmp_path):
+    image = Image.new("RGB", (100, 100))
+    detection = {"class_name": "Fruit/Apple/Royal-Gala", "confidence": 0.4, "bbox": [10, 10, 60, 60]}
+    class_names = ["Fruit/Apple/Royal-Gala", "Snacks/Chocolate-Bar/Cadbury"]
+
+    with patch("src.data.auto_labeler.ask_vlm", return_value="This is a Cadbury chocolate bar"):
+        result = auto_import_mid_band_detection(image, detection, class_names, tmp_path, capture_id="cap1")
+
+    assert result is None
+    assert not (tmp_path / "Fruit/Apple/Royal-Gala").exists()
+
+
+def test_auto_import_mid_band_detection_discards_when_vlm_unavailable(tmp_path):
+    image = Image.new("RGB", (100, 100))
+    detection = {"class_name": "Fruit/Apple/Royal-Gala", "confidence": 0.4, "bbox": [10, 10, 60, 60]}
+
+    with patch("src.data.auto_labeler.ask_vlm", return_value=None):
+        result = auto_import_mid_band_detection(
+            image, detection, ["Fruit/Apple/Royal-Gala"], tmp_path, capture_id="cap1"
+        )
+
+    assert result is None
+
+
+def test_auto_import_mid_band_detection_discards_when_vlm_matches_unknown_category(tmp_path):
+    image = Image.new("RGB", (100, 100))
+    detection = {"class_name": "Fruit/Apple/Royal-Gala", "confidence": 0.4, "bbox": [10, 10, 60, 60]}
+
+    with patch("src.data.auto_labeler.ask_vlm", return_value="I have no idea what this is"):
+        result = auto_import_mid_band_detection(
+            image, detection, ["Fruit/Apple/Royal-Gala"], tmp_path, capture_id="cap1"
+        )
+
+    assert result is None
