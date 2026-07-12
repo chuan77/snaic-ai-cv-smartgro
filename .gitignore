@@ -43,3 +43,5 @@ dataset/raw_photos/labels/
 dataset/raw_photos/classes.txt
 dataset/raw_photos/notes.json
 dataset/label_studio_pulls/
+
+graphify-out/

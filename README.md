@@ -184,6 +184,44 @@ The fix: flatten both categories' brand/flavor subfolders back into a single coa
 
 Promoted: `SMARTCART_WEIGHTS_PATH` updated to `runs/detect/retrain_20260709_202721/weights/best.pt` and the API restarted.
 
+## 🤖 Autonomous Active-Learning Pipeline
+
+The manual loop above still works standalone, but it can also run itself: a local vision-language model stands in for the human Label Studio reviewer, and a passing retrain candidate promotes itself — no `push_captures_to_label_studio.py`, no clicking through Label Studio, no manually editing `SMARTCART_WEIGHTS_PATH`.
+
+- **Requires a local [LM Studio](https://lmstudio.ai) instance** serving a vision-capable model (developed against `qwen2.5-vl-3b-instruct`) with its API server running.
+- **Env vars** (see `.env.example`): `SMARTCART_VLM_BASE_URL` (default `http://localhost:1234`), `SMARTCART_VLM_MODEL`, `SMARTCART_AUTOLABEL_MIN_CONF` (default `0.35` — the lower bound of the "mid-confidence" band; the upper bound reuses `SMARTCART_CAPTURE_CONF_THRESHOLD`), `SMARTCART_AL_RETRAIN_TRIGGER_COUNT` (default `50` — auto-imported crops needed since the last retrain attempt), `SMARTCART_RETRAIN_MIN_VARIANT_ACC` (default `0.5` — DINOv2 variant-accuracy floor, alongside the existing `SMARTCART_RETRAIN_MIN_MAP50`), `SMARTCART_AL_AUDIT_SAMPLE_RATE` (default `0.05`), `SMARTCART_AL_STATE_PATH`.
+- **How a capture gets auto-labeled instead of sent to a human:**
+  - *Mid-confidence detections* (YOLO saw something, just not confidently): the crop is shown to the VLM independently. If the VLM's answer agrees with YOLO's guess, the crop is imported straight into the dataset tree. Any disagreement, "unsure" answer, or VLM-unreachable error discards the capture — two independent signals failing to agree is treated as "not confident enough," never a coin flip.
+  - *Zero-detection / very-low-confidence frames*: the VLM is asked cold, over the whole frame, for a category match and (if possible) a bounding box. A parseable, plausible box is used; otherwise the whole frame is used as the crop, since this app's own capture flow is already one held-up item per frame.
+  - A sampled fraction of every decision (`SMARTCART_AL_AUDIT_SAMPLE_RATE`) is logged to `artifacts/al_review/` for optional, non-blocking human spot-checking — nothing reads this directory automatically.
+- **Retrain, dual-gate, promote:** once enough new crops accumulate (`SMARTCART_AL_RETRAIN_TRIGGER_COUNT`), a full retrain cycle runs against an isolated candidate directory (never touching live `artifacts/` mid-run). A candidate only promotes if it doesn't regress either metric versus the live model **and** clears both absolute floors (YOLO mAP50, DINOv2 variant accuracy). On promotion, the candidate's weights + gallery/catalog replace the live ones and the API server restarts automatically to pick them up.
+
+```mermaid
+flowchart TD
+    PRED["POST /predict<br/>maybe_capture (existing, automatic)"] --> STAGE[("SMARTCART_CAPTURE_DIR<br/>staged frame + sidecar json")]
+
+    STAGE --> TICK["al_scheduler_check.py<br/>(launchd, every SMARTCART_AL_SCHEDULER_INTERVAL_SEC)"]
+    TICK --> VLM{"VLM cross-check /<br/>cold ask<br/>auto_labeler.py"}
+    VLM -- "agree / confident match" --> IMPORT["import crop into<br/>GroceryStoreDataset leaf class"]
+    VLM -- "disagree / unsure / unreachable" --> DISCARD(["discarded,<br/>never left pending"])
+
+    IMPORT --> TRIGGER{"auto-imported crops<br/>≥ SMARTCART_AL_RETRAIN_TRIGGER_COUNT?"}
+    TRIGGER -- "no" --> WAIT(["counted, wait for next tick"])
+    TRIGGER -- "yes" --> RETRAIN["run_retrain_cycle()<br/>isolated candidates/&lt;run_name&gt;/"]
+
+    RETRAIN --> GATE{"mAP50 ≥ floor AND<br/>variant-acc ≥ floor AND<br/>both ≥ live model?"}
+    GATE -- "no" --> KEEP(["candidate kept for inspection,<br/>production untouched"])
+    GATE -- "yes" --> PROMOTE["promote(): copy weights + gallery<br/>into live artifacts/, update .env"]
+    PROMOTE --> RESTART["launchctl kickstart<br/>com.smartcart.api"]
+```
+
+**Setup:**
+1. Start LM Studio with a vision-capable model loaded and its API server running.
+2. Run `uv run python seed_al_baseline.py` once — measures the currently-served model's real mAP50/variant-accuracy so the first autonomous promotion compares against reality, not a zero baseline.
+3. Install both launchd services per `launchd/README.md` (`com.smartcart.api` runs the API server persistently; `com.smartcart.al-scheduler` runs the checker on an interval).
+
+The existing manual Label Studio loop (above) remains fully available — install neither launchd service to keep everything manual, or use both loops side by side (e.g. Label Studio for genuinely new products the VLM doesn't recognize, autonomous for everything already in the catalog).
+
 ## 🏗️ Project Architecture
 The project is modularized into `src/` (core logic) and root-level `main_dayN_*.py` scripts (orchestration) — each day's script is a thin entrypoint that imports its logic from `src/`.
 
@@ -194,12 +232,13 @@ A second, self-contained copy of the same logic lives under `scripts/main_dayN_*
 - **Detector:** Utilizes YOLOv11 optimized for MPS/Apple Silicon.
 
 ## 🛠️ Folder Structure
-- `src/data/` — dataset indexing (`gallery.py`), DINOv2 embedding gallery, scene synthesis, Label Studio annotation import (`annotation_import.py`) and export-pull (`label_studio_export_pull.py`, behind `retrain_from_label_studio.py`).
-- `src/models/` — YOLO evaluation (auditor), stress augmentation (optimizer), DINOv2 feature extraction.
+- `src/data/` — dataset indexing (`gallery.py`), DINOv2 embedding gallery, scene synthesis, Label Studio annotation import (`annotation_import.py`) and export-pull (`label_studio_export_pull.py`, behind `retrain_from_label_studio.py`), VLM-based auto-labeling of staged captures (`auto_labeler.py`, behind `al_scheduler_check.py`).
+- `src/models/` — YOLO evaluation (auditor), stress augmentation (optimizer), DINOv2 feature extraction, DINOv2 held-out variant-accuracy audit (`variant_auditor.py`), LM Studio VLM client (`vlm_verifier.py`).
 - `src/deploy/` — `api_server.py` (FastAPI backend behind `main_api_server.py`), `detector.py` (shared YOLO detector singleton), `label_studio_backend.py` (Label Studio ML Backend routes under `/ls`), `active_learning_capture.py` (uncertainty-based frame capture), `label_studio_push.py` (pushes captures into Label Studio, behind `push_captures_to_label_studio.py`), and `register.py` (the Gradio checkout register behind `main_day5_deploy.py`).
-- `src/pipeline/` — `training_pipeline.py`'s `ModelTrainingPipeline` (rebuild catalog → resynthesize → retrain → audit, behind `retrain_from_label_studio.py`; always writes to a fresh `runs/detect/retrain_<timestamp>/` + `synthetic_dataset_retrain/`, never to `runs/detect/train/` or `SMARTCART_WEIGHTS_PATH`).
+- `src/pipeline/` — `training_pipeline.py`'s `ModelTrainingPipeline` (rebuild catalog → resynthesize → retrain → audit, behind `retrain_from_label_studio.py`; always writes to a fresh `runs/detect/retrain_<timestamp>/` + `synthetic_dataset_retrain/`, never to `runs/detect/train/` or `SMARTCART_WEIGHTS_PATH`), `candidate_promotion.py` (state/report persistence + mechanical promotion decision for the autonomous loop), `al_scheduler.py` (orchestrates the autonomous loop, behind root `al_scheduler_check.py`).
+- `launchd/` — `com.smartcart.api.plist` / `com.smartcart.al-scheduler.plist` service definitions + install/verify/uninstall instructions for the autonomous pipeline.
 - `frontend/` — React/Vite checkout UI that talks to the FastAPI backend. Key pieces: `hooks/useSmartCart.ts` (Zustand store for detections/cart/checkout state), `components/CameraFeed.tsx` (webcam, freeze/detect, drag-drop), `components/CartSidebar.tsx` (switches between the live cart and the receipt), `components/ReceiptView.tsx` (read-only checkout receipt), `components/ProductCard.tsx` (shared cart/receipt line row).
 - `dataset/`: Raw GroceryStoreDataset source.
 - `synthetic_dataset/`: Procedurally generated training/val scenes.
-- `artifacts/`: Day 1 outputs (product catalog, embedding gallery).
+- `artifacts/`: Day 1 outputs (product catalog, embedding gallery); also `artifacts/candidates/` (isolated retrain candidates) and `artifacts/al_review/` (sampled auto-label audit trail) for the autonomous pipeline.
 - `runs/`: Training logs and model weights.
