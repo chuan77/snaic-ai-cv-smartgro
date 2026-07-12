@@ -25,6 +25,7 @@ def write_promoted_state(state_path: Path, state: dict) -> None:
 
 
 def write_candidate_report(candidate_dir: Path, report: dict) -> Path:
+    candidate_dir.mkdir(parents=True, exist_ok=True)
     report_path = candidate_dir / "report.json"
     report_path.write_text(json.dumps(report))
     return report_path

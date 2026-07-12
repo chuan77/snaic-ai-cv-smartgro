@@ -46,3 +46,14 @@ def test_write_candidate_report_writes_json_to_candidate_dir(tmp_path):
 
     assert path == candidate_dir / "report.json"
     assert json.loads(path.read_text()) == report
+
+
+def test_write_candidate_report_creates_candidate_dir_when_missing(tmp_path):
+    candidate_dir = tmp_path / "retrain_2"
+    report = {"run_name": "retrain_2", "map50": 0.75, "passed": False}
+
+    path = write_candidate_report(candidate_dir, report)
+
+    assert candidate_dir.is_dir()
+    assert path == candidate_dir / "report.json"
+    assert json.loads(path.read_text()) == report
