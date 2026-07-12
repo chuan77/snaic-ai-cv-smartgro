@@ -122,3 +122,53 @@ def test_auto_import_mid_band_detection_discards_when_vlm_matches_unknown_catego
         )
 
     assert result is None
+
+
+from src.data.auto_labeler import auto_import_low_signal_frame
+
+
+def test_auto_import_low_signal_frame_uses_parsed_box_when_valid(tmp_path):
+    image = Image.new("RGB", (1000, 1000))
+    class_names = ["Fruit/Apple/Royal-Gala"]
+
+    with patch(
+        "src.data.auto_labeler.ask_vlm",
+        return_value="Fruit/Apple/Royal-Gala at (100,100),(500,500)",
+    ):
+        result = auto_import_low_signal_frame(image, class_names, tmp_path, capture_id="cap2")
+
+    expected_path = tmp_path / "Fruit/Apple/Royal-Gala" / "cap2.jpg"
+    assert result == expected_path
+    with Image.open(expected_path) as cropped:
+        assert cropped.size == (400, 400)  # (500-100, 500-100)
+
+
+def test_auto_import_low_signal_frame_falls_back_to_whole_frame_without_valid_box(tmp_path):
+    image = Image.new("RGB", (200, 100))
+    class_names = ["Fruit/Apple/Royal-Gala"]
+
+    with patch("src.data.auto_labeler.ask_vlm", return_value="Fruit/Apple/Royal-Gala, no coordinates given"):
+        result = auto_import_low_signal_frame(image, class_names, tmp_path, capture_id="cap3")
+
+    expected_path = tmp_path / "Fruit/Apple/Royal-Gala" / "cap3.jpg"
+    assert result == expected_path
+    with Image.open(expected_path) as saved:
+        assert saved.size == (200, 100)  # whole frame, no crop
+
+
+def test_auto_import_low_signal_frame_discards_when_no_category_match(tmp_path):
+    image = Image.new("RGB", (100, 100))
+
+    with patch("src.data.auto_labeler.ask_vlm", return_value="I don't recognize this item"):
+        result = auto_import_low_signal_frame(image, ["Fruit/Apple/Royal-Gala"], tmp_path, capture_id="cap4")
+
+    assert result is None
+
+
+def test_auto_import_low_signal_frame_discards_when_vlm_unavailable(tmp_path):
+    image = Image.new("RGB", (100, 100))
+
+    with patch("src.data.auto_labeler.ask_vlm", return_value=None):
+        result = auto_import_low_signal_frame(image, ["Fruit/Apple/Royal-Gala"], tmp_path, capture_id="cap5")
+
+    assert result is None

@@ -8,7 +8,7 @@ from pathlib import Path
 from PIL import Image
 
 from src.data.annotation_import import crop_with_padding
-from src.models.vlm_verifier import ask_vlm, match_category
+from src.models.vlm_verifier import ask_vlm, match_category, parse_grounding_box
 
 
 def get_autolabel_min_conf() -> float:
@@ -60,6 +60,39 @@ def auto_import_mid_band_detection(
     vlm_category = match_category(answer, class_names)
     if vlm_category is None or vlm_category != detection["class_name"]:
         return None
+
+    dest_dir = dataset_root / vlm_category
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest_path = dest_dir / f"{capture_id}.jpg"
+    crop.save(dest_path)
+    return dest_path
+
+
+_LOW_SIGNAL_PROMPT_TEMPLATE = (
+    "Which of these exact product categories appears in this image: {categories}? "
+    "If you can, also give its bounding box as (x1,y1),(x2,y2) on a 0-1000 scale. "
+    "Answer 'none' if you are not confident."
+)
+
+
+def auto_import_low_signal_frame(
+    image: Image.Image, class_names: list[str], dataset_root: Path, capture_id: str
+) -> Path | None:
+    """Asks the VLM cold (no YOLO signal to cross-check) for a category and an
+    optional box over the whole frame. Falls back to the whole frame as the crop
+    when no valid box comes back -- reasonable here since the app's own capture
+    flow is already one held-up item per frame, not a wild guess."""
+    prompt = _LOW_SIGNAL_PROMPT_TEMPLATE.format(categories=", ".join(class_names))
+    answer = ask_vlm(image, prompt)
+    if answer is None:
+        return None
+
+    vlm_category = match_category(answer, class_names)
+    if vlm_category is None:
+        return None
+
+    box = parse_grounding_box(answer, image.width, image.height)
+    crop = image.crop(box) if box is not None else image
 
     dest_dir = dataset_root / vlm_category
     dest_dir.mkdir(parents=True, exist_ok=True)
