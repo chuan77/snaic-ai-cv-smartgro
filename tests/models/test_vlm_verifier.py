@@ -102,3 +102,59 @@ def test_ask_vlm_returns_none_when_image_encoding_raises(monkeypatch):
     monkeypatch.setattr("src.models.vlm_verifier.httpx.post", fake_post)
 
     assert ask_vlm(Image.new("RGB", (4, 4)), "Which category?") is None
+
+
+from src.models.vlm_verifier import is_sane_box, match_category, parse_grounding_box
+
+
+def test_match_category_finds_substring_match_case_insensitive():
+    categories = ["Fruit/Apple/Royal-Gala", "Snacks/Chocolate-Bar/Cadbury-RoastAlmond"]
+
+    assert match_category("i see a royal-gala apple", categories) == "Fruit/Apple/Royal-Gala"
+
+
+def test_match_category_prefers_longest_match():
+    categories = [
+        "Ready-To-Eat/Instant-Noodles/Myojo/Chicken",
+        "Ready-To-Eat/Instant-Noodles/Myojo/ChickenAbalone",
+    ]
+
+    answer = "This is Ready-To-Eat/Instant-Noodles/Myojo/ChickenAbalone flavor"
+
+    assert match_category(answer, categories) == "Ready-To-Eat/Instant-Noodles/Myojo/ChickenAbalone"
+
+
+def test_match_category_returns_none_when_no_match():
+    assert match_category("I have no idea what this is", ["Fruit/Apple/Royal-Gala"]) is None
+
+
+def test_is_sane_box_rejects_out_of_bounds():
+    assert is_sane_box((10, 10, 200, 50), img_width=100, img_height=100) is False
+
+
+def test_is_sane_box_rejects_too_small_or_too_large():
+    assert is_sane_box((0, 0, 1, 1), img_width=100, img_height=100) is False  # ~0.01% of frame
+    assert is_sane_box((0, 0, 100, 100), img_width=100, img_height=100) is False  # 100% of frame
+
+
+def test_is_sane_box_accepts_plausible_box():
+    assert is_sane_box((10, 10, 60, 60), img_width=100, img_height=100) is True
+
+
+def test_parse_grounding_box_converts_normalized_coordinates():
+    answer = "The item is located at (100,100),(500,500)."
+
+    box = parse_grounding_box(answer, img_width=1000, img_height=1000)
+
+    assert box == (100, 100, 500, 500)
+
+
+def test_parse_grounding_box_returns_none_when_missing():
+    assert parse_grounding_box("no box here", img_width=1000, img_height=1000) is None
+
+
+def test_parse_grounding_box_returns_none_when_box_fails_sanity_check():
+    # (0,0),(1000,1000) on a 0-1000 scale covers the entire frame -- not plausible
+    answer = "(0,0),(1000,1000)"
+
+    assert parse_grounding_box(answer, img_width=1000, img_height=1000) is None

@@ -6,6 +6,7 @@ block or raise on it."""
 import base64
 import io
 import os
+import re
 
 import httpx
 from PIL import Image
@@ -44,3 +45,45 @@ def ask_vlm(image: Image.Image, prompt: str, timeout: float = 30.0) -> str | Non
         return response.json()["output"][0]["content"]
     except Exception:
         return None
+
+
+_GROUNDING_BOX_PATTERN = re.compile(r"\((\d+),\s*(\d+)\),\s*\((\d+),\s*(\d+)\)")
+
+
+def match_category(answer: str, candidate_categories: list[str]) -> str | None:
+    """Finds which candidate category the VLM's free-text answer references, via
+    case-insensitive substring match, preferring the longest match when several
+    candidates appear (mirrors annotation_import.classify_category's approach)."""
+    answer_lower = answer.lower()
+    matches = []
+    for c in candidate_categories:
+        if any(part.lower() in answer_lower for part in c.split("/")):
+            matches.append(c)
+    if not matches:
+        return None
+    return max(matches, key=len)
+
+
+def is_sane_box(box: tuple[int, int, int, int], img_width: int, img_height: int) -> bool:
+    x1, y1, x2, y2 = box
+    if not (0 <= x1 < x2 <= img_width and 0 <= y1 < y2 <= img_height):
+        return False
+    area_ratio = ((x2 - x1) * (y2 - y1)) / (img_width * img_height)
+    return 0.01 <= area_ratio <= 0.9
+
+
+def parse_grounding_box(answer: str, img_width: int, img_height: int) -> tuple[int, int, int, int] | None:
+    """Parses a Qwen-style '(x1,y1),(x2,y2)' box on a 0-1000 normalized scale out
+    of free text, scales it to pixel xyxy, and returns None if missing or if it
+    fails a basic plausibility check (in-bounds, 1-90% of the frame area)."""
+    match = _GROUNDING_BOX_PATTERN.search(answer)
+    if match is None:
+        return None
+    x1, y1, x2, y2 = (int(v) for v in match.groups())
+    box = (
+        int(x1 / 1000 * img_width),
+        int(y1 / 1000 * img_height),
+        int(x2 / 1000 * img_width),
+        int(y2 / 1000 * img_height),
+    )
+    return box if is_sane_box(box, img_width, img_height) else None
