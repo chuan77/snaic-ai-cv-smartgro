@@ -4,6 +4,7 @@ staged capture is either imported into the dataset tree or discarded --
 never left pending, since there is no human to eventually review it."""
 import hashlib
 import json
+import logging
 import os
 from pathlib import Path
 
@@ -11,6 +12,8 @@ from PIL import Image
 
 from src.data.annotation_import import crop_with_padding
 from src.models.vlm_verifier import ask_vlm, match_category, parse_grounding_box
+
+logger = logging.getLogger("AutoLabeler")
 
 
 def get_autolabel_min_conf() -> float:
@@ -169,7 +172,7 @@ def auto_import_capture(
             if review_dir is not None and should_sample(capture_id, get_audit_sample_rate()):
                 log_review_sample(review_dir, capture_id, image, {"category": category, "decisions": outcome})
     except Exception:
-        pass
+        logger.warning("Auto-import failed for %s; discarding.", sidecar_path, exc_info=True)
     finally:
         mark_consumed(sidecar_path)
     return imported
