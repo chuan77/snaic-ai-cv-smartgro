@@ -240,3 +240,57 @@ def test_auto_import_staging_dir_processes_all_pending_and_returns_combined_list
 
     assert len(imported) == 2
     assert pending_sidecars(tmp_path) == []
+
+
+def _write_sidecar_with_bad_image(staging_dir, name, detections):
+    """Like _write_sidecar, but the referenced image file is undecodable
+    garbage instead of a real JPEG -- simulates a corrupt/truncated capture."""
+    staging_dir.mkdir(parents=True, exist_ok=True)
+    (staging_dir / f"{name}.jpg").write_bytes(b"not a real image")
+    sidecar = {
+        "captured_at": "2026-07-11T00:00:00",
+        "image_file": f"{name}.jpg",
+        "image_width": 64,
+        "image_height": 32,
+        "num_detections": len(detections),
+        "min_confidence": min((d["confidence"] for d in detections), default=None),
+        "detections": detections,
+    }
+    (staging_dir / f"{name}.json").write_text(json.dumps(sidecar))
+    return staging_dir / f"{name}.json"
+
+
+def test_auto_import_capture_discards_and_marks_consumed_on_corrupt_image(tmp_path):
+    sidecar_path = _write_sidecar_with_bad_image(
+        tmp_path, "bad", [{"class_name": "Fruit/Apple/Royal-Gala", "confidence": 0.4, "bbox": [0, 0, 20, 20]}]
+    )
+    dataset_root = tmp_path / "dataset"
+
+    imported = auto_import_capture(
+        sidecar_path, tmp_path, ["Fruit/Apple/Royal-Gala"], dataset_root, min_conf=0.35, max_conf=0.5
+    )
+
+    assert imported == []
+    assert not sidecar_path.exists()
+    assert (tmp_path / "consumed" / "bad.json").exists()
+
+
+def test_auto_import_staging_dir_skips_bad_capture_but_still_processes_good_one(tmp_path):
+    _write_sidecar_with_bad_image(
+        tmp_path, "bad", [{"class_name": "Fruit/Apple/Royal-Gala", "confidence": 0.4, "bbox": [0, 0, 20, 20]}]
+    )
+    _write_sidecar(
+        tmp_path, "good", [{"class_name": "Fruit/Apple/Royal-Gala", "confidence": 0.4, "bbox": [0, 0, 20, 20]}]
+    )
+    dataset_root = tmp_path / "dataset"
+
+    with patch("src.data.auto_labeler.ask_vlm", return_value="Fruit/Apple/Royal-Gala"):
+        imported = auto_import_staging_dir(
+            tmp_path, ["Fruit/Apple/Royal-Gala"], dataset_root, min_conf=0.35, max_conf=0.5
+        )
+
+    assert len(imported) == 1
+    assert imported[0].exists()
+    assert (tmp_path / "consumed" / "bad.json").exists()
+    assert (tmp_path / "consumed" / "good.json").exists()
+    assert pending_sidecars(tmp_path) == []

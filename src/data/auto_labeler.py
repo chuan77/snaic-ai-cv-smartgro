@@ -115,27 +115,30 @@ def auto_import_capture(
     max_conf: float,
 ) -> list[Path]:
     """Processes one staged capture end-to-end and always marks it consumed
-    afterward, so the scheduler never reprocesses it regardless of outcome."""
-    capture = load_capture(sidecar_path)
-    image_path = staging_dir / capture["image_file"]
+    afterward (even on error), so the scheduler never reprocesses it and one
+    corrupt capture never blocks the rest of the staging directory."""
     imported: list[Path] = []
-
-    with Image.open(image_path).convert("RGB") as image:
-        detections = capture["detections"]
-        capture_id = sidecar_path.stem
-        if classify_capture(detections, min_conf, max_conf) == "zero_or_low":
-            result = auto_import_low_signal_frame(image, class_names, dataset_root, capture_id)
-            if result is not None:
-                imported.append(result)
-        else:
-            for i, detection in enumerate(detections):
-                result = auto_import_mid_band_detection(
-                    image, detection, class_names, dataset_root, f"{capture_id}_{i}"
-                )
+    try:
+        capture = load_capture(sidecar_path)
+        image_path = staging_dir / capture["image_file"]
+        with Image.open(image_path).convert("RGB") as image:
+            detections = capture["detections"]
+            capture_id = sidecar_path.stem
+            if classify_capture(detections, min_conf, max_conf) == "zero_or_low":
+                result = auto_import_low_signal_frame(image, class_names, dataset_root, capture_id)
                 if result is not None:
                     imported.append(result)
-
-    mark_consumed(sidecar_path)
+            else:
+                for i, detection in enumerate(detections):
+                    result = auto_import_mid_band_detection(
+                        image, detection, class_names, dataset_root, f"{capture_id}_{i}"
+                    )
+                    if result is not None:
+                        imported.append(result)
+    except Exception:
+        pass
+    finally:
+        mark_consumed(sidecar_path)
     return imported
 
 
